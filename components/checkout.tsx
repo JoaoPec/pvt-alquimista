@@ -1,73 +1,30 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 
-type Ticket = "general" | "experience";
-
-const tickets = {
-  general: { label: "Ingresso geral", price: "R$ 350,00" },
-  experience: { label: "Experiência +", price: "R$ 680,00" },
-};
+const WHATSAPP_GROUP = "https://chat.whatsapp.com/KKGTkftbQDt1iNMJRPq246";
+const INSTAGRAM = "https://www.instagram.com/alquimista.pvt/";
 
 export function Checkout() {
-  const [ticket, setTicket] = useState<Ticket>("general");
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [message, setMessage] = useState("");
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus("loading");
-    const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ticketType: ticket,
-        name: form.get("name"),
-        email: form.get("email"),
-        whatsapp: form.get("whatsapp"),
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setStatus("error");
-      setMessage(data.error || "Não foi possível iniciar seu pedido.");
-      return;
-    }
-    setStatus("success");
-    setMessage(`Pedido ${data.code} reservado. Em produção, redirecione agora para o checkout do gateway.`);
-  }
 
   return (
     <>
-      <button className="ticket-action" onClick={() => { setOpen(true); setStatus("idle"); }}>
-        Comprar agora <span>↗</span>
+      <button className="ticket-action" onClick={() => setOpen(true)}>
+        Acompanhar pré-venda <span>↗</span>
       </button>
       {open && (
         <div className="checkout-backdrop" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
           <div className="checkout-shell">
             <button className="close" aria-label="Fechar" onClick={() => setOpen(false)}>×</button>
-            <p className="kicker">RESERVA DE INGRESSO</p>
-            <h2 id="checkout-title">Seu lugar em ALTA.</h2>
-            <p className="checkout-ticket">{tickets[ticket].label} · <strong>{tickets[ticket].price}</strong></p>
-            <div className="ticket-tabs">
-              {(Object.keys(tickets) as Ticket[]).map((key) => (
-                <button key={key} onClick={() => setTicket(key)} className={ticket === key ? "selected" : ""}>{tickets[key].label}</button>
-              ))}
+            <p className="kicker">PVT ALQUIMISTA</p>
+            <h2 id="checkout-title">A pré-venda será anunciada em breve.</h2>
+            <p className="checkout-ticket">Entre no grupo oficial para receber primeiro os lotes, valores e instruções de compra.</p>
+            <div className="checkout-links">
+              <a className="checkout-submit" href={WHATSAPP_GROUP} target="_blank" rel="noreferrer">Entrar no grupo oficial <span>↗</span></a>
+              <a className="checkout-secondary" href={INSTAGRAM} target="_blank" rel="noreferrer">Acompanhar no Instagram <span>↗</span></a>
             </div>
-            {status === "success" ? (
-              <div className="success"><b>Reserva registrada.</b><br />{message}</div>
-            ) : (
-              <form onSubmit={submit}>
-                <label>Nome completo<input required name="name" placeholder="Como quer ser chamado?" /></label>
-                <label>E-mail<input required type="email" name="email" placeholder="voce@email.com" /></label>
-                <label>WhatsApp<input required name="whatsapp" placeholder="(71) 99999-9999" /></label>
-                {status === "error" && <p className="error">{message}</p>}
-                <button className="checkout-submit" disabled={status === "loading"}>{status === "loading" ? "Reservando..." : "Reservar ingresso"}<span>↗</span></button>
-              </form>
-            )}
-            <p className="fineprint">Ao continuar, você receberá as próximas instruções no e-mail informado.</p>
+            <p className="fineprint">Nenhum dado é solicitado antes da abertura oficial das vendas.</p>
           </div>
         </div>
       )}
