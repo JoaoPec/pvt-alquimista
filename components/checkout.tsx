@@ -22,6 +22,12 @@ export function Checkout() {
   const total = counts.social * 20 + counts.normal * 25 + counts.combo5 * 80 + (cooler ? 100 : 0);
   const kinds = useMemo(() => [...Array(counts.social).fill("social"), ...Array(counts.normal).fill("normal"), ...Array(counts.combo5 * 5).fill("combo5")] as Kind[], [counts]);
   useEffect(() => { if (open && pixKey) toDataURL(pixKey, { margin: 1, width: 320, color: { dark: "#0a283c", light: "#f5ecda" } }).then(setQr); }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
   useEffect(() => { setExtraNames((all) => Array.from({ length: Math.max(0, totalGuests - 1) }, (_, i) => all[i] ?? "")); if (totalGuests < 2) setCooler(false); }, [totalGuests]);
   const change = (kind: Kind, n: number) => setCounts((all) => ({ ...all, [kind]: Math.max(0, Math.min(20, all[kind] + n)) }));
   async function submitOrder(event: FormEvent<HTMLFormElement>) {
