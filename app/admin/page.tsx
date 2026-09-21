@@ -164,7 +164,7 @@ export default function AdminPage() {
       <p className="kicker">PVT ALQUIMISTA · ADMIN</p>
       <h1>Painel da produção</h1>
       <p className="admin-hero-sub">
-        {byStatus("approved")?.orders ?? 0} aprovados · {pending} aguardando · {br(byStatus("approved")?.cents ?? 0)} confirmados
+        {plural(byStatus("approved")?.orders ?? 0, "aprovado", "aprovados")} · {plural(pending, "aguardando", "aguardando")} · {br(byStatus("approved")?.cents ?? 0)} confirmados
       </p>
       <nav className="admin-tabs" aria-label="Seções do painel">
         {tabs.map((item) => (
@@ -180,7 +180,7 @@ export default function AdminPage() {
 
       {tab === "visao" && stats && <section className="stat-grid">
         <article className="card stat-card featured"><span>RECEITA APROVADA</span><b>{br(byStatus("approved")?.cents ?? 0)}</b><p>{plural(byStatus("approved")?.orders ?? 0, "pedido aprovado", "pedidos aprovados")}{stats.removedApproved > 0 ? ` · ${plural(stats.removedApproved, "convidado removido", "convidados removidos")} depois` : ""}</p></article>
-        <article className="card stat-card"><span>INGRESSOS APROVADOS</span><b>{approvedByKind("social") + approvedByKind("normal") + approvedByKind("combo5")}</b><p>social {approvedByKind("social")} · normal {approvedByKind("normal")} · combo5 {approvedByKind("combo5")}</p></article>
+        <article className="card stat-card"><span>INGRESSOS APROVADOS</span><b>{approvedByKind("social") + approvedByKind("normal") + approvedByKind("combo5")}</b><p>Social {approvedByKind("social")} · Normal {approvedByKind("normal")} · Combo 5 {approvedByKind("combo5")}</p></article>
         <article className="card stat-card"><span>CORTESIAS</span><b>{stats.complimentary.total}</b><p>{plural(stats.complimentary.checkedIn, "já entrou", "já entraram")}</p></article>
         <article className="card stat-card"><span>CHECK-IN NA PORTARIA</span><b>{stats.checkedIn}</b><p>{plural(stats.checkedIn, "entrada confirmada", "entradas confirmadas")}</p></article>
         <article className="card stat-card"><span>AGUARDANDO APROVAÇÃO</span><b>{pending}</b><p>{br(byStatus("pending_approval")?.cents ?? 0)} em análise</p></article>
