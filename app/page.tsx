@@ -10,7 +10,7 @@ export default function Home() {
       <section className="alq-hero" id="inicio">
         <nav className="nav" aria-label="Navegação principal">
           <a className="mark" href="#inicio" aria-label="PVT Alquimista"><img src="/images/alta-mark.jfif" alt="Símbolo PVT Alquimista" width={58} height={58} /></a>
-          <div className="nav-links"><a href="#experiencias">A EXPERIÊNCIA</a><a href="#lineup">PROGRAMAÇÃO</a><a href="#local">LOCAL</a><a href={whatsapp} target="_blank" rel="noreferrer">GRUPO</a></div>
+          <div className="nav-links"><a href="#experiencias">A EXPERIÊNCIA</a><a href="#lineup">PROGRAMAÇÃO</a><a href="#local">LOCAL</a><a href={whatsapp} target="_blank" rel="noreferrer">GRUPO</a><a href="/portaria">LISTA</a><a href="/admin">ADM</a></div>
           <a className="nav-cta" href="#ingressos">COMPRAR INGRESSO <span>↗</span></a>
         </nav>
         <div className="hero-mosaic" aria-hidden="true"><div className="mosaic-main" /><div className="mosaic-stage" /><div className="mosaic-crowd" /></div><div className="hero-shade" />
