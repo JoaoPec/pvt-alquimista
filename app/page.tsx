@@ -1,4 +1,3 @@
-import Image from "next/image";
 import { Checkout } from "@/components/checkout";
 import { Reveal } from "@/components/reveal";
 
@@ -10,7 +9,7 @@ export default function Home() {
     <main className="festival-page">
       <section className="hero" id="inicio">
         <nav className="nav" aria-label="Navegação principal">
-          <a className="mark" href="#inicio" aria-label="PVT Alquimista"><Image src="/images/alta-mark.jfif" alt="Símbolo PVT Alquimista" width={58} height={58} priority /></a>
+          <a className="mark" href="#inicio" aria-label="PVT Alquimista"><img src="/images/alta-mark.jfif" alt="Símbolo PVT Alquimista" width={58} height={58} /></a>
           <div className="nav-links"><a href="#experiencias">A EXPERIÊNCIA</a><a href="#lineup">PROGRAMAÇÃO</a><a href="#local">LOCAL</a><a href={whatsapp} target="_blank" rel="noreferrer">GRUPO</a></div>
           <a className="nav-cta" href="#ingressos">COMPRAR INGRESSO <span>↗</span></a>
         </nav>
@@ -27,7 +26,7 @@ export default function Home() {
       </section>
 
       <section className="place section" id="local"><div className="place-art map-frame"><iframe title="Mapa do Dunas Mar, Arembepe" src="https://www.openstreetmap.org/export/embed.html?bbox=-38.1715%2C-12.7613%2C-38.1615%2C-12.7573&layer=mapnik&marker=-12.759258%2C-38.1665401" loading="lazy" referrerPolicy="no-referrer-when-downgrade" /><div className="map-label"><span>AREMBEPE</span><b>DUNAS MAR</b></div></div><Reveal className="place-copy"><p className="eyebrow ink">ONDE ACONTECE</p><h2>DUNAS MAR</h2><p>Aldeia Hippie, Arembepe.<br />De frente para o mar, cercada por natureza.</p><a href="https://maps.app.goo.gl/ZieKgh1qJgqvHhy58" target="_blank" rel="noreferrer">ABRIR NO GOOGLE MAPS <span>↗</span></a><a className="whatsapp-link" href={whatsapp} target="_blank" rel="noreferrer">ENTRAR NO GRUPO DO WHATSAPP <span>↗</span></a></Reveal></section>
-      <footer><Image src="/images/alta-mark.jfif" alt="PVT Alquimista" width={56} height={56} /><p>PVT ALQUIMISTA · 2026</p><a href="https://www.instagram.com/alquimista.pvt/" target="_blank" rel="noreferrer">@alquimista.pvt</a></footer><a className="mobile-dock" href={whatsapp} target="_blank" rel="noreferrer">GRUPO WHATSAPP <span>↗</span></a>
+      <footer><img src="/images/alta-mark.jfif" alt="PVT Alquimista" width={56} height={56} /><p>PVT ALQUIMISTA · 2026</p><a href="https://www.instagram.com/alquimista.pvt/" target="_blank" rel="noreferrer">@alquimista.pvt</a></footer><a className="mobile-dock" href={whatsapp} target="_blank" rel="noreferrer">GRUPO WHATSAPP <span>↗</span></a>
     </main>
   );
 }
