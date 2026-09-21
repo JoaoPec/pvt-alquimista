@@ -42,6 +42,8 @@ function getDatabase() {
   if (!database) {
     mkdirSync(path.dirname(databasePath), { recursive: true });
     database = new DatabaseSync(databasePath);
+
+    // 1) Estrutura base. Nunca apaga nada: tudo é CREATE ... IF NOT EXISTS.
     database.exec(`
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS sellers (
@@ -59,6 +61,7 @@ function getDatabase() {
         total_cents INTEGER NOT NULL,
         cooler INTEGER NOT NULL DEFAULT 0,
         seller_id INTEGER REFERENCES sellers(id) ON DELETE SET NULL,
+        proof_type TEXT NOT NULL DEFAULT 'receipt',
         status TEXT NOT NULL DEFAULT 'awaiting_receipt' CHECK(status IN ('awaiting_receipt','pending_approval','approved','rejected')),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -68,7 +71,9 @@ function getDatabase() {
         order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
         guest_name TEXT NOT NULL,
         ticket_kind TEXT NOT NULL CHECK(ticket_kind IN ('social','normal','combo5')),
-        checked_in_at TEXT
+        checked_in_at TEXT,
+        removed_at TEXT,
+        removed_reason TEXT
       );
       CREATE TABLE IF NOT EXISTS payment_receipts (
         order_id INTEGER PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
@@ -78,9 +83,6 @@ function getDatabase() {
         file_data BLOB NOT NULL,
         uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
-      CREATE INDEX IF NOT EXISTS orders_status_created_idx ON orders(status, created_at DESC);
-      CREATE INDEX IF NOT EXISTS order_guests_order_idx ON order_guests(order_id);
-      CREATE INDEX IF NOT EXISTS orders_seller_idx ON orders(seller_id);
       CREATE TABLE IF NOT EXISTS admin_audit_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -91,18 +93,24 @@ function getDatabase() {
         guest_name TEXT,
         detail TEXT
       );
+      CREATE INDEX IF NOT EXISTS orders_status_created_idx ON orders(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS order_guests_order_idx ON order_guests(order_id);
       CREATE INDEX IF NOT EXISTS admin_audit_log_created_idx ON admin_audit_log(created_at DESC);
     `);
-    const columns = database.prepare(`PRAGMA table_info(orders)`).all() as Array<Record<string, unknown>>;
-    if (!columns.some((column) => column.name === "seller_id")) {
-      database.exec(`ALTER TABLE orders ADD COLUMN seller_id INTEGER REFERENCES sellers(id) ON DELETE SET NULL;`);
-    }
-    const guestColumns = database.prepare(`PRAGMA table_info(order_guests)`).all() as Array<Record<string, unknown>>;
-    const guestNames = new Set(guestColumns.map((column) => String(column.name)));
-    if (!guestNames.has("removed_at")) database.exec(`ALTER TABLE order_guests ADD COLUMN removed_at TEXT;`);
-    if (!guestNames.has("removed_reason")) database.exec(`ALTER TABLE order_guests ADD COLUMN removed_reason TEXT;`);
-    const orderCols = new Set(columns.map((column) => String(column.name)));
-    if (!orderCols.has("proof_type")) database.exec(`ALTER TABLE orders ADD COLUMN proof_type TEXT NOT NULL DEFAULT 'receipt';`);
+
+    // 2) Evolução de colunas em bancos antigos (ALTER só quando falta a coluna).
+    //    Precisa vir ANTES de qualquer índice que use essas colunas.
+    const columnsOf = (table: string) => new Set((database!.prepare(`PRAGMA table_info(${table})`).all() as Array<Record<string, unknown>>).map((column) => String(column.name)));
+    const addColumn = (table: string, column: string, definition: string) => {
+      if (!columnsOf(table).has(column)) database!.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+    };
+    addColumn("orders", "seller_id", "INTEGER REFERENCES sellers(id) ON DELETE SET NULL");
+    addColumn("orders", "proof_type", "TEXT NOT NULL DEFAULT 'receipt'");
+    addColumn("order_guests", "removed_at", "TEXT");
+    addColumn("order_guests", "removed_reason", "TEXT");
+
+    // 3) Índices que dependem das colunas acima.
+    database.exec(`CREATE INDEX IF NOT EXISTS orders_seller_idx ON orders(seller_id);`);
   }
   return database;
 }
