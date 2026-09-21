@@ -7,7 +7,7 @@ const whatsapp = "https://chat.whatsapp.com/KKGTkftbQDt1iNMJRPq246";
 export default function Home() {
   return (
     <main className="festival-page">
-      <section className="hero" id="inicio">
+      <section className="alq-hero" id="inicio">
         <nav className="nav" aria-label="Navegação principal">
           <a className="mark" href="#inicio" aria-label="PVT Alquimista"><img src="/images/alta-mark.jfif" alt="Símbolo PVT Alquimista" width={58} height={58} /></a>
           <div className="nav-links"><a href="#experiencias">A EXPERIÊNCIA</a><a href="#lineup">PROGRAMAÇÃO</a><a href="#local">LOCAL</a><a href={whatsapp} target="_blank" rel="noreferrer">GRUPO</a></div>
@@ -32,6 +32,7 @@ export default function Home() {
             <ul><li>Acesso à PVT Alquimista</li><li>Sem alimento obrigatório</li></ul><Checkout />
           </article>
           <article className="ticket-card night combo-card">
+            <span className="ticket-badge">MELHOR VALOR · R$ 16 POR PESSOA</span>
             <p className="ticket-index">03 · COMBO 5</p><h3>R$<br />80</h3>
             <p className="ticket-copy">Combo com 5 ingressos para chegar junto com a sua tribo.</p>
             <ul><li>5 ingressos no mesmo combo</li><li>Economia para o grupo</li></ul><Checkout />

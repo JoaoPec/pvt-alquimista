@@ -22,5 +22,16 @@ export function apiResponse(request: Request, body: unknown, init?: ResponseInit
 }
 
 export function apiOptions(request: Request) {
-  return apiResponse(request, {}, { status: 204 });
+  const headers = new Headers();
+  const origin = request.headers.get("origin");
+  const configured = process.env.FRONTEND_ORIGIN?.split(",").map((item) => item.trim()).filter(Boolean) ?? [];
+  const allowed = ["https://pvt-alquimista.vercel.app", "http://localhost:3099", "http://localhost:3000", ...configured];
+  if (origin && allowed.includes(origin)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+  }
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  headers.set("Access-Control-Max-Age", "86400");
+  return new NextResponse(null, { status: 204, headers });
 }
