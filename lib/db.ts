@@ -29,8 +29,10 @@ export type AdminOrder = {
   receiptUploaded: boolean;
   sellerId: number | null;
   sellerName: string | null;
-  guests: Array<{ id: number; name: string; kind: TicketKind; checkedInAt: string | null }>;
+  guests: Array<{ id: number; name: string; kind: TicketKind; checkedInAt: string | null; removedAt: string | null; removedReason: string | null }>;
 };
+
+export type AuditEntry = { id: number; createdAt: string; action: string; orderCode: string | null; guestId: number | null; guestName: string | null; detail: string | null };
 
 const databasePath = process.env.SQLITE_PATH || path.join(process.cwd(), "data", "alquimista.sqlite");
 let database: DatabaseSync | undefined;
@@ -78,11 +80,26 @@ function getDatabase() {
       CREATE INDEX IF NOT EXISTS orders_status_created_idx ON orders(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS order_guests_order_idx ON order_guests(order_id);
       CREATE INDEX IF NOT EXISTS orders_seller_idx ON orders(seller_id);
+      CREATE TABLE IF NOT EXISTS admin_audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        actor TEXT NOT NULL DEFAULT 'admin',
+        action TEXT NOT NULL,
+        order_code TEXT,
+        guest_id INTEGER,
+        guest_name TEXT,
+        detail TEXT
+      );
+      CREATE INDEX IF NOT EXISTS admin_audit_log_created_idx ON admin_audit_log(created_at DESC);
     `);
     const columns = database.prepare(`PRAGMA table_info(orders)`).all() as Array<Record<string, unknown>>;
     if (!columns.some((column) => column.name === "seller_id")) {
       database.exec(`ALTER TABLE orders ADD COLUMN seller_id INTEGER REFERENCES sellers(id) ON DELETE SET NULL;`);
     }
+    const guestColumns = database.prepare(`PRAGMA table_info(order_guests)`).all() as Array<Record<string, unknown>>;
+    const guestNames = new Set(guestColumns.map((column) => String(column.name)));
+    if (!guestNames.has("removed_at")) database.exec(`ALTER TABLE order_guests ADD COLUMN removed_at TEXT;`);
+    if (!guestNames.has("removed_reason")) database.exec(`ALTER TABLE order_guests ADD COLUMN removed_reason TEXT;`);
   }
   return database;
 }
@@ -90,15 +107,20 @@ function getDatabase() {
 function toAdminOrder(row: Record<string, unknown>): AdminOrder {
   const db = getDatabase();
   const orderId = Number(row.id);
-  const guests = db.prepare(`SELECT id, guest_name, ticket_kind, checked_in_at FROM order_guests WHERE order_id = ? ORDER BY id`).all(orderId) as Array<Record<string, unknown>>;
+  const guests = db.prepare(`SELECT id, guest_name, ticket_kind, checked_in_at, removed_at, removed_reason FROM order_guests WHERE order_id = ? ORDER BY id`).all(orderId) as Array<Record<string, unknown>>;
   return {
     code: String(row.code), buyerName: String(row.buyer_name), email: String(row.email), whatsapp: String(row.whatsapp),
     totalCents: Number(row.total_cents), cooler: Boolean(row.cooler), status: row.status as OrderStatus,
     createdAt: String(row.created_at), receiptUploaded: Boolean(row.receipt_uploaded),
     sellerId: row.seller_id == null ? null : Number(row.seller_id),
     sellerName: row.seller_name == null ? null : String(row.seller_name),
-    guests: guests.map((guest) => ({ id: Number(guest.id), name: String(guest.guest_name), kind: guest.ticket_kind as TicketKind, checkedInAt: guest.checked_in_at ? String(guest.checked_in_at) : null })),
+    guests: guests.map((guest) => ({ id: Number(guest.id), name: String(guest.guest_name), kind: guest.ticket_kind as TicketKind, checkedInAt: guest.checked_in_at ? String(guest.checked_in_at) : null, removedAt: guest.removed_at ? String(guest.removed_at) : null, removedReason: guest.removed_reason ? String(guest.removed_reason) : null })),
   };
+}
+
+function audit(action: string, input: { orderCode?: string; guestId?: number | null; guestName?: string | null; detail?: string | null }) {
+  getDatabase().prepare(`INSERT INTO admin_audit_log (action, order_code, guest_id, guest_name, detail) VALUES (?, ?, ?, ?, ?)`)
+    .run(action, input.orderCode ?? null, input.guestId ?? null, input.guestName ?? null, input.detail ?? null);
 }
 
 export function createOrder(input: CreateOrderInput) {
@@ -168,7 +190,25 @@ export function upsertSeller(input: { id?: number; name: string; active?: boolea
 export function setOrderStatus(code: string, status: Extract<OrderStatus, "approved" | "rejected">) {
   const db = getDatabase();
   const result = db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE code = ? AND status = 'pending_approval'`).run(status, code);
+  if (result.changes > 0) audit(status === "approved" ? "order.approved" : "order.rejected", { orderCode: code });
   return result.changes > 0;
+}
+
+export function removeGuest(guestId: number, reason: string) {
+  const db = getDatabase();
+  const cleanReason = reason.trim().slice(0, 280);
+  if (!cleanReason) throw new Error("Informe o motivo da remoção.");
+  const guest = db.prepare(`SELECT g.id, g.guest_name, g.removed_at, o.code FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE g.id = ?`).get(guestId) as Record<string, unknown> | undefined;
+  if (!guest || guest.removed_at) return false;
+  db.prepare(`UPDATE order_guests SET removed_at = CURRENT_TIMESTAMP, removed_reason = ? WHERE id = ?`).run(cleanReason, guestId);
+  audit("guest.removed", { orderCode: String(guest.code), guestId, guestName: String(guest.guest_name), detail: cleanReason });
+  return true;
+}
+
+export function listAudit(limit = 200) {
+  const db = getDatabase();
+  const rows = db.prepare(`SELECT id, created_at, action, order_code, guest_id, guest_name, detail FROM admin_audit_log ORDER BY id DESC LIMIT ?`).all(Math.min(Math.max(limit, 1), 500)) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({ id: Number(row.id), createdAt: String(row.created_at), action: String(row.action), orderCode: row.order_code == null ? null : String(row.order_code), guestId: row.guest_id == null ? null : Number(row.guest_id), guestName: row.guest_name == null ? null : String(row.guest_name), detail: row.detail == null ? null : String(row.detail) }));
 }
 
 export function receiptForOrder(code: string) {
@@ -178,12 +218,12 @@ export function receiptForOrder(code: string) {
 
 export function approvedGuests() {
   const db = getDatabase();
-  const rows = db.prepare(`SELECT g.id, g.guest_name, g.ticket_kind, g.checked_in_at, o.code, o.whatsapp FROM order_guests g JOIN orders o ON o.id=g.order_id WHERE o.status='approved' ORDER BY g.guest_name COLLATE NOCASE`).all() as Array<Record<string, unknown>>;
+  const rows = db.prepare(`SELECT g.id, g.guest_name, g.ticket_kind, g.checked_in_at, o.code, o.whatsapp FROM order_guests g JOIN orders o ON o.id=g.order_id WHERE o.status='approved' AND g.removed_at IS NULL ORDER BY g.guest_name COLLATE NOCASE`).all() as Array<Record<string, unknown>>;
   return rows.map((row) => ({ id: Number(row.id), name: String(row.guest_name), kind: row.ticket_kind as TicketKind, checkedInAt: row.checked_in_at ? String(row.checked_in_at) : null, code: String(row.code), whatsapp: String(row.whatsapp) }));
 }
 
 export function checkInGuest(id: number) {
   const db = getDatabase();
-  const result = db.prepare(`UPDATE order_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE id = ? AND order_id IN (SELECT id FROM orders WHERE status='approved')`).run(id);
+  const result = db.prepare(`UPDATE order_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE id = ? AND removed_at IS NULL AND order_id IN (SELECT id FROM orders WHERE status='approved')`).run(id);
   return result.changes > 0;
 }
