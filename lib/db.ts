@@ -187,6 +187,21 @@ export function upsertSeller(input: { id?: number; name: string; active?: boolea
   return { id: Number(result.lastInsertRowid), name, active: input.active !== false };
 }
 
+export function orderStats() {
+  const db = getDatabase();
+  const byStatus = db.prepare(`SELECT status, COUNT(*) AS orders, COALESCE(SUM(total_cents),0) AS cents FROM orders GROUP BY status`).all() as Array<Record<string, unknown>>;
+  const guests = db.prepare(`SELECT o.status, g.ticket_kind, COUNT(*) AS n FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE g.removed_at IS NULL GROUP BY o.status, g.ticket_kind`).all() as Array<Record<string, unknown>>;
+  const removed = db.prepare(`SELECT COUNT(*) AS n FROM order_guests WHERE removed_at IS NOT NULL`).get() as Record<string, unknown>;
+  const checkedIn = db.prepare(`SELECT COUNT(*) AS n FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE o.status = 'approved' AND g.removed_at IS NULL AND g.checked_in_at IS NOT NULL`).get() as Record<string, unknown>;
+  const bySeller = db.prepare(`SELECT COALESCE(s.name,'(sem vendedor)') AS seller, COUNT(DISTINCT o.id) AS orders, COALESCE(SUM(o.total_cents),0) AS cents, COUNT(g.id) AS guests FROM orders o LEFT JOIN sellers s ON s.id = o.seller_id LEFT JOIN order_guests g ON g.order_id = o.id AND g.removed_at IS NULL WHERE o.status = 'approved' GROUP BY COALESCE(s.name,'(sem vendedor)') ORDER BY cents DESC`).all() as Array<Record<string, unknown>>;
+  return {
+    byStatus: byStatus.map((row) => ({ status: String(row.status), orders: Number(row.orders), cents: Number(row.cents) })),
+    guests: guests.map((row) => ({ status: String(row.status), kind: String(row.ticket_kind), count: Number(row.n) })),
+    removed: Number(removed.n), checkedIn: Number(checkedIn.n),
+    bySeller: bySeller.map((row) => ({ seller: String(row.seller), orders: Number(row.orders), cents: Number(row.cents), guests: Number(row.guests) })),
+  };
+}
+
 export function setOrderStatus(code: string, status: Extract<OrderStatus, "approved" | "rejected">) {
   const db = getDatabase();
   const result = db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE code = ? AND status = 'pending_approval'`).run(status, code);

@@ -1,6 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
 import { createAdminToken, getBearerToken, isAdminToken, verifyAdminPassword } from "@/lib/auth";
-import { listOrders, setOrderStatus } from "@/lib/db";
+import { listOrders, orderStats, setOrderStatus } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -26,6 +26,6 @@ export async function POST(request: Request) {
 export function GET(request: Request) {
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
-    return apiResponse(request, { orders: listOrders() });
+    return apiResponse(request, { orders: listOrders(), stats: orderStats() });
   } catch { return apiResponse(request, { error: "Administração ainda não configurada." }, { status: 503 }); }
 }
