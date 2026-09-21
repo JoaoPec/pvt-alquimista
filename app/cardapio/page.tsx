@@ -34,7 +34,7 @@ export default function CardapioPage() {
     </div>
 
     <footer className="menu-foot">
-      <p>Pagamento no bar em <strong>Pix ou dinheiro</strong>. Beba com moderação — a festa é longa.</p>
+      <p>Pagamento no bar em <strong>Pix, dinheiro ou cartão</strong>. Beba com moderação — a festa é longa.</p>
       <div className="menu-links">
         <a className="btn" href="/#ingressos">COMPRAR INGRESSO</a>
         <a className="btn btn-ghost" href={whatsapp} target="_blank" rel="noreferrer">GRUPO DO WHATSAPP</a>
