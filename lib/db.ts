@@ -268,6 +268,19 @@ export function findSellerBySlug(slug: string) {
   return { id, name: String(row.name), slug: String(row.slug), ...sellerUsage(id) };
 }
 
+/**
+ * Apaga (desativa) o link de um DJ. O link deixa de funcionar, mas o registro,
+ * os pedidos e as cortesias continuam no banco — nada é perdido.
+ */
+export function setSellerActive(id: number, active: boolean) {
+  const db = getDatabase();
+  const row = db.prepare(`SELECT id, name, slug FROM sellers WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+  if (!row) return false;
+  db.prepare(`UPDATE sellers SET active = ? WHERE id = ?`).run(active ? 1 : 0, id);
+  audit(active ? "seller.reactivated" : "seller.deleted", { guestName: String(row.name), detail: String(row.slug ?? "") });
+  return true;
+}
+
 export function upsertSeller(input: { id?: number; name: string; slug?: string; quota?: number; active?: boolean }) {
   const db = getDatabase();
   const name = input.name.trim().slice(0, 80);

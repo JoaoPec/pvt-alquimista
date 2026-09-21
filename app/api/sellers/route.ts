@@ -1,6 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
 import { getBearerToken, isAdminToken } from "@/lib/auth";
-import { listSellers, upsertSeller } from "@/lib/db";
+import { listSellers, setSellerActive, upsertSeller } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -18,10 +18,17 @@ export function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  let body: { name?: string; id?: number; slug?: string; quota?: number; active?: boolean };
+  let body: { action?: "delete" | "reactivate"; name?: string; id?: number; slug?: string; quota?: number; active?: boolean };
   try { body = await request.json(); } catch { return apiResponse(request, { error: "Dados inválidos." }, { status: 400 }); }
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
+
+    if (body.action === "delete" || body.action === "reactivate") {
+      if (!Number.isInteger(body.id)) return apiResponse(request, { error: "DJ inválido." }, { status: 422 });
+      if (!setSellerActive(body.id as number, body.action === "reactivate")) return apiResponse(request, { error: "DJ não encontrado." }, { status: 404 });
+      return apiResponse(request, { sellers: listSellers(false) });
+    }
+
     const seller = upsertSeller({ id: body.id, name: body.name ?? "", slug: body.slug, quota: body.quota, active: body.active });
     return apiResponse(request, { seller, sellers: listSellers(false) }, { status: body.id ? 200 : 201 });
   } catch (error) {

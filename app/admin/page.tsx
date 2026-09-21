@@ -9,7 +9,7 @@ type Receipt = { filename: string; contentType: string; dataBase64: string };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; sellerId: number | null; sellerName: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
 type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; checkedIn: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
 type Seller = { id: number; name: string; slug: string | null; quota: number; active: boolean; sold: number; given: number; used: number; remaining: number };
-type Target = { kind: "guest" | "complimentary"; id: number; name: string };
+type Target = { kind: "guest" | "complimentary" | "seller"; id: number; name: string };
 type Tab = "visao" | "djs" | "cortesias" | "pedidos" | "log";
 
 const br = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
@@ -111,14 +111,26 @@ export default function AdminPage() {
   const doRemove = async () => {
     if (!removing || confirmText !== "REMOVER") return;
     try {
-      const path = removing.kind === "guest" ? "/api/admin/guests" : "/api/admin/complimentary";
-      const body = removing.kind === "guest" ? { guestId: removing.id, reason } : { action: "remove", id: removing.id, reason };
+      const path = removing.kind === "guest" ? "/api/admin/guests" : removing.kind === "complimentary" ? "/api/admin/complimentary" : "/api/sellers";
+      const body = removing.kind === "guest" ? { guestId: removing.id, reason }
+        : removing.kind === "complimentary" ? { action: "remove", id: removing.id, reason }
+        : { action: "delete", id: removing.id };
       const r = await apiFetch(path, { method: "POST", headers: authHeaders(token, true), body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw Error(d.error);
+      if (removing.kind === "seller") setSellers(d.sellers ?? []);
       setRemoving(null);
       await load(token);
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao remover."); }
+  };
+
+  const reactivateDj = async (id: number) => {
+    try {
+      const r = await apiFetch("/api/sellers", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ action: "reactivate", id }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      setSellers(d.sellers ?? []);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao reativar."); }
   };
 
   const approvedByKind = (kind: string) => stats?.guests.find((g) => g.status === "approved" && g.kind === kind)?.count ?? 0;
@@ -185,12 +197,18 @@ export default function AdminPage() {
         {sellers.length === 0 && <p className="fineprint">Nenhum DJ cadastrado ainda.</p>}
         {sellers.map((s) => {
           const link = typeof window !== "undefined" ? `${window.location.origin}/dj/${s.slug}` : `/dj/${s.slug}`;
-          return <article className="card" key={s.id}>
-            <b>{s.name}</b>
+          return <article className={s.active ? "card" : "card card-off"} key={s.id}>
+            <b>{s.name}{s.active ? "" : " · link apagado"}</b>
             <p>Usou <strong>{s.used}</strong> de {s.quota} · {s.sold} vendidos pelo link · {s.given} cortesias · restam <strong>{s.remaining}</strong></p>
-            <div className="pix-key"><code>{link}</code>
-              <button className="btn btn-sm" type="button" onClick={() => navigator.clipboard.writeText(link)}>Copiar link</button>
-            </div>
+            {s.active
+              ? <div className="pix-key"><code>{link}</code>
+                <button className="btn btn-sm" type="button" onClick={() => navigator.clipboard.writeText(link)}>Copiar link</button>{" "}
+                <button className="btn btn-sm" type="button" onClick={() => window.open(link, "_blank")}>Abrir</button>{" "}
+                <button className="btn btn-sm btn-danger" type="button" onClick={() => askRemove({ kind: "seller", id: s.id, name: s.name })}>Apagar link</button>
+              </div>
+              : <div className="pix-key"><code>{link} (fora do ar)</code>
+                <button className="btn btn-sm" type="button" onClick={() => reactivateDj(s.id)}>Reativar link</button>
+              </div>}
           </article>;
         })}
       </>}
@@ -203,7 +221,7 @@ export default function AdminPage() {
           <label>Descontar do limite de qual DJ?
             <select value={newSellerId} onChange={(e) => setNewSellerId(e.target.value)}>
               <option value="">Sem DJ (não desconta de ninguém)</option>
-              {sellers.map((s) => <option key={s.id} value={s.id}>{s.name} · restam {s.remaining}</option>)}
+              {sellers.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name} · restam {s.remaining}</option>)}
             </select>
           </label>
           <button className="btn" type="submit">Adicionar cortesia</button>
@@ -253,12 +271,20 @@ export default function AdminPage() {
     </section>
 
     {removing && <div className="checkout-backdrop"><div className="checkout-shell">
-      <h2>Remover {removing.name}?</h2>
-      <p>O nome sai da lista da portaria, mas o registro é preservado com motivo e log. Digite REMOVER para confirmar.</p>
-      <label>Motivo<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex: pagamento estornado" /></label>
-      <label>Confirmação<input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="REMOVER" /></label>
-      <button className="btn" disabled={confirmText !== "REMOVER" || !reason.trim()} onClick={doRemove}>Confirmar remoção</button>{" "}
-      <button className="btn" onClick={() => setRemoving(null)}>Cancelar</button>
+      {removing.kind === "seller" ? <>
+        <h2>Apagar o link de {removing.name}?</h2>
+        <p>O link sai do ar imediatamente e ninguém mais consegue comprar por ele. O DJ continua no histórico, com os pedidos e cortesias dele preservados. Você pode reativar depois.</p>
+        <label>Confirmação<input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="REMOVER" /></label>
+        <button className="btn btn-danger" disabled={confirmText !== "REMOVER"} onClick={doRemove}>Apagar link</button>{" "}
+        <button className="btn" onClick={() => setRemoving(null)}>Cancelar</button>
+      </> : <>
+        <h2>Remover {removing.name}?</h2>
+        <p>O nome sai da lista da portaria, mas o registro é preservado com motivo e log. Digite REMOVER para confirmar.</p>
+        <label>Motivo<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex: pagamento estornado" /></label>
+        <label>Confirmação<input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="REMOVER" /></label>
+        <button className="btn" disabled={confirmText !== "REMOVER" || !reason.trim()} onClick={doRemove}>Confirmar remoção</button>{" "}
+        <button className="btn" onClick={() => setRemoving(null)}>Cancelar</button>
+      </>}
     </div></div>}
   </main>;
 }
