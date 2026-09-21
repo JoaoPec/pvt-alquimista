@@ -419,3 +419,21 @@ export function checkInGuest(id: number) {
   const result = db.prepare(`UPDATE order_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE id = ? AND removed_at IS NULL AND order_id IN (SELECT id FROM orders WHERE status='approved')`).run(id);
   return result.changes > 0;
 }
+
+/**
+ * Check-in de um pedido inteiro pelo QR code da pagina do pedido.
+ * Retorna null quando o pedido nao existe ou nao esta aprovado.
+ */
+export function checkInOrder(code: string) {
+  const db = getDatabase();
+  const normalized = code.trim().toUpperCase().replace(/^ALQUIMISTA:/, "");
+  const order = db.prepare(`SELECT id, code, buyer_name, status FROM orders WHERE code = ?`).get(normalized) as Record<string, unknown> | undefined;
+  if (!order) return null;
+  const guests = db.prepare(`SELECT id, guest_name, ticket_kind, checked_in_at FROM order_guests WHERE order_id = ? AND removed_at IS NULL ORDER BY id`).all(Number(order.id)) as Array<Record<string, unknown>>;
+  if (String(order.status) !== "approved") {
+    return { code: String(order.code), buyerName: String(order.buyer_name), status: String(order.status), checkedIn: 0, pending: guests.length, guests: guests.map((g) => ({ name: String(g.guest_name), kind: String(g.ticket_kind), checkedIn: Boolean(g.checked_in_at) })) };
+  }
+  db.prepare(`UPDATE order_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE order_id = ? AND removed_at IS NULL`).run(Number(order.id));
+  const after = db.prepare(`SELECT guest_name, ticket_kind, checked_in_at FROM order_guests WHERE order_id = ? AND removed_at IS NULL ORDER BY id`).all(Number(order.id)) as Array<Record<string, unknown>>;
+  return { code: String(order.code), buyerName: String(order.buyer_name), status: "approved", checkedIn: after.length, pending: 0, guests: after.map((g) => ({ name: String(g.guest_name), kind: String(g.ticket_kind), checkedIn: Boolean(g.checked_in_at) })) };
+}

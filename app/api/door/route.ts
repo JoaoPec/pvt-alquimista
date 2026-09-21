@@ -1,6 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
 import { getBearerToken, isAdminToken } from "@/lib/auth";
-import { approvedGuests, checkInComplimentary, checkInGuest, listComplimentary } from "@/lib/db";
+import { approvedGuests, checkInComplimentary, checkInGuest, checkInOrder, listComplimentary } from "@/lib/db";
 export const runtime = "nodejs";
 export function OPTIONS(request: Request) { return apiOptions(request); }
 export function GET(request: Request) {
@@ -12,7 +12,13 @@ export function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
-    const body = await request.json() as { guestId?: number; complimentaryId?: number };
+    const body = await request.json() as { guestId?: number; complimentaryId?: number; code?: string };
+    if (typeof body.code === "string" && body.code.trim()) {
+      const result = checkInOrder(body.code);
+      if (!result) return apiResponse(request, { error: "Pedido não encontrado." }, { status: 404 });
+      if (result.status !== "approved") return apiResponse(request, { error: `Pedido ${result.code} não está aprovado (${result.status}).`, order: result }, { status: 409 });
+      return apiResponse(request, { checkedIn: true, order: result });
+    }
     if (Number.isInteger(body.complimentaryId)) {
       if (!checkInComplimentary(body.complimentaryId as number)) return apiResponse(request, { error: "Cortesia não disponível." }, { status: 404 });
       return apiResponse(request, { checkedIn: true });
