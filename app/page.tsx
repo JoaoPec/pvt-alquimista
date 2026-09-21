@@ -20,7 +20,28 @@ export default function Home() {
 
       <section className="tickets section" id="ingressos">
         <div className="ticket-heading"><p className="eyebrow">LUGARES LIMITADOS</p><h2>VENDA DE INGRESSOS</h2></div>
-        <Reveal className="ticket-layout"><article className="ticket-card cream"><p className="ticket-index">01 · PRIMEIRO LOTE</p><h3>LISTA<br />ALQUIMISTA</h3><p className="ticket-copy">Receba primeiro o acesso ao lote e todas as informações do ritual.</p><ul><li>Prioridade na abertura</li><li>Informações pelo WhatsApp</li><li>Novidades da experiência</li></ul><Checkout /></article><article className="ticket-card night"><p className="ticket-index">02 · LOTES</p><h3>EM<br />BREVE</h3><p className="ticket-copy">Os valores e formatos de ingresso serão divulgados no Instagram e no grupo oficial.</p><a className="ticket-action alt" href="https://www.instagram.com/alquimista.pvt/" target="_blank" rel="noreferrer">SEGUIR NO INSTAGRAM <span>↗</span></a><span className="pine" aria-hidden="true">⌁</span></article></Reveal>
+        <Reveal className="ticket-layout">
+          <article className="ticket-card cream">
+            <p className="ticket-index">01 · SOCIAL</p><h3>R$<br />20</h3>
+            <p className="ticket-copy">Ingresso social com 1 kg de alimento não perecível.</p>
+            <ul><li>1 kg de alimento obrigatório</li><li>Acesso à PVT Alquimista</li></ul><Checkout />
+          </article>
+          <article className="ticket-card night">
+            <p className="ticket-index">02 · NORMAL</p><h3>R$<br />25</h3>
+            <p className="ticket-copy">Ingresso individual para viver a noite de lua cheia.</p>
+            <ul><li>Acesso à PVT Alquimista</li><li>Sem alimento obrigatório</li></ul><Checkout />
+          </article>
+          <article className="ticket-card night combo-card">
+            <p className="ticket-index">03 · COMBO 5</p><h3>R$<br />80</h3>
+            <p className="ticket-copy">Combo com 5 ingressos para chegar junto com a sua tribo.</p>
+            <ul><li>5 ingressos no mesmo combo</li><li>Economia para o grupo</li></ul><Checkout />
+          </article>
+          <article className="ticket-card cream cooler-card">
+            <p className="ticket-index">04 · ADICIONAL</p><h3>COOLER<br /><small>+ R$ 100</small></h3>
+            <p className="ticket-copy">Opção liberada somente a partir da compra de 2 ingressos.</p>
+            <ul><li>Disponível para 2+ ingressos</li><li>Adicional de R$ 100</li></ul><Checkout />
+          </article>
+        </Reveal>
         <div className="lineup-wrap" id="lineup"><h2>LINE-UP</h2><div className="sound-list">{sounds.map((sound, index) => <span key={sound}><b>0{index + 1}</b>{sound}</span>)}</div></div>
         <aside className="experiences" id="experiencias"><h2>EXPERIÊNCIAS</h2><div className="experience-row"><span className="experience beach">PRAIA</span><span className="experience moonlight">LUA CHEIA</span><span className="experience sound">SOM</span><span className="experience nature">NATUREZA</span></div></aside>
       </section>
