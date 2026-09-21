@@ -5,7 +5,7 @@ import { COOLER_ENABLED, COOLER_PRICE } from "@/lib/features";
 export const runtime = "nodejs";
 
 const ticketPrices: Record<TicketKind, number> = { social: 2000, normal: 2500, combo5: 8000 };
-type Payload = { buyerName?: string; email?: string; whatsapp?: string; tickets?: Array<{ kind?: string; guestName?: string }>; cooler?: boolean; sellerId?: number | null; djSlug?: string | null };
+type Payload = { buyerName?: string; email?: string; whatsapp?: string; tickets?: Array<{ kind?: string; guestName?: string }>; cooler?: boolean; djSlug?: string | null };
 
 export function OPTIONS(request: Request) { return apiOptions(request); }
 
@@ -28,15 +28,12 @@ export async function POST(request: Request) {
     + (comboGuests / 5) * ticketPrices.combo5
     + (cooler ? COOLER_PRICE * 100 : 0);
   try {
-    // Link do DJ tem prioridade sobre a escolha manual de vendedor.
+    // Atribuição só pelo link do DJ — não existe mais escolha manual de vendedor.
     let sellerId: number | null = null;
     if (payload.djSlug) {
       const dj = findSellerBySlug(payload.djSlug);
       if (!dj) return apiResponse(request, { error: "Link de DJ inválido ou inativo." }, { status: 422 });
       sellerId = dj.id;
-    } else if (payload.sellerId != null && payload.sellerId !== 0) {
-      sellerId = Number(payload.sellerId);
-      if (!Number.isInteger(sellerId)) return apiResponse(request, { error: "Vendedor inválido." }, { status: 422 });
     }
     const order = createOrder({ buyerName, email, whatsapp, tickets: normalized, cooler, totalCents, sellerId });
     return apiResponse(request, { ...order, totalCents }, { status: 201 });

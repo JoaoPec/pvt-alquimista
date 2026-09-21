@@ -20,7 +20,6 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
   const [limit, setLimit] = useState(maxTickets ?? 20);
   const [cooler, setCooler] = useState(false);
   const [buyer, setBuyer] = useState(""); const [extraNames, setExtraNames] = useState<string[]>([]);
-  const [sellers, setSellers] = useState<Array<{ id: number; name: string }>>([]); const [sellerId, setSellerId] = useState("");
   const [receiptName, setReceiptName] = useState("");
   const [code, setCode] = useState(""); const [qr, setQr] = useState(""); const [pixPayload, setPixPayload] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const totalGuests = guestsOf(counts);
@@ -38,9 +37,6 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
   }, [step, total, code]);
   useEffect(() => {
     if (!open) return;
-    setSellerId("");
-    if (!djSlug) apiFetch("/api/sellers").then((r) => r.json()).then((d) => { if (Array.isArray(d.sellers)) setSellers(d.sellers); }).catch(() => setSellers([]));
-    else setSellers([]);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
@@ -68,7 +64,7 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
     const form = new FormData(event.currentTarget); setLoading(true); setError("");
     const guestNames = [buyer.trim(), ...extraNames.map((n) => n.trim())];
     try {
-      const r = await apiFetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyerName: buyer.trim(), email: form.get("email"), whatsapp: form.get("whatsapp"), cooler, sellerId: sellerId ? Number(sellerId) : null, djSlug: djSlug ?? null, tickets: kinds.map((kind, i) => ({ kind, guestName: guestNames[i] })) }) });
+      const r = await apiFetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyerName: buyer.trim(), email: form.get("email"), whatsapp: form.get("whatsapp"), cooler, djSlug: djSlug ?? null, tickets: kinds.map((kind, i) => ({ kind, guestName: guestNames[i] })) }) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error); setCode(data.code); setStep("payment");
     } catch (e) { setError(e instanceof Error ? e.message : "Falha ao criar pedido."); } finally { setLoading(false); }
   }
@@ -108,7 +104,6 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
         <label>Pessoa 1 · Comprador<input required value={buyer} onChange={(e) => setBuyer(e.target.value)} placeholder="Seu nome completo (vale como ingresso 1)" /></label>
         <label>E-mail<input required type="email" name="email" placeholder="Para receber a confirmação" /></label>
         <label>WhatsApp<input required name="whatsapp" placeholder="Para avisos do evento" /></label>
-        {sellers.length > 0 && <label>Quem te vendeu?<select value={sellerId} onChange={(e) => setSellerId(e.target.value)}><option value="">Selecione (opcional)</option>{sellers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>}
         {kinds.slice(1).map((kind, i) => <label key={i}>Pessoa {i + 2} · {labels[kind]}<input required value={extraNames[i] ?? ""} placeholder="Nome completo" onChange={(e) => setExtraNames((all) => all.map((name, index) => index === i ? e.target.value : name))} /></label>)}
         {COOLER_ENABLED && cooler && <p className="extra-summary">Cooler incluído · + R$ {COOLER_PRICE},00</p>}
         <p className="checkout-ticket">Total <strong>R$ {total.toFixed(2).replace(".", ",")}</strong></p>
