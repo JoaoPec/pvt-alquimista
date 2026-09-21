@@ -4,21 +4,28 @@ import { listSellers, upsertSeller } from "@/lib/db";
 
 export const runtime = "nodejs";
 
+const knownErrors = new Set([
+  "Nome do vendedor é obrigatório.",
+  "Vendedor não encontrado.",
+  "Esse link já está em uso por outro DJ.",
+]);
+
 export function OPTIONS(request: Request) { return apiOptions(request); }
 
 export function GET(request: Request) {
-  try { return apiResponse(request, { sellers: listSellers(true) }); }
+  try { return apiResponse(request, { sellers: listSellers(false) }); }
   catch { return apiResponse(request, { error: "Vendedores ainda não configurados." }, { status: 503 }); }
 }
 
 export async function POST(request: Request) {
+  let body: { name?: string; id?: number; slug?: string; quota?: number; active?: boolean };
+  try { body = await request.json(); } catch { return apiResponse(request, { error: "Dados inválidos." }, { status: 400 }); }
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
-    const body = await request.json() as { name?: string; id?: number; active?: boolean };
-    const seller = upsertSeller({ id: body.id, name: body.name ?? "", active: body.active });
-    return apiResponse(request, { seller, sellers: listSellers(false) });
+    const seller = upsertSeller({ id: body.id, name: body.name ?? "", slug: body.slug, quota: body.quota, active: body.active });
+    return apiResponse(request, { seller, sellers: listSellers(false) }, { status: body.id ? 200 : 201 });
   } catch (error) {
-    const message = error instanceof Error && error.message === "Nome do vendedor é obrigatório." ? error.message : "Não foi possível salvar o vendedor.";
-    return apiResponse(request, { error: message }, { status: 503 });
+    if (error instanceof Error && knownErrors.has(error.message)) return apiResponse(request, { error: error.message }, { status: 422 });
+    return apiResponse(request, { error: "Não foi possível salvar o vendedor." }, { status: 503 });
   }
 }

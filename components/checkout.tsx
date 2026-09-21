@@ -12,7 +12,7 @@ const labels: Record<Kind, string> = { social: "Social · 1 kg de alimento", nor
 const prices: Record<Kind, number> = { social: 20, normal: 25, combo5: 80 };
 const perks: Record<Kind, string> = { social: "Solidário, valor reduzido", normal: "Entrada individual", combo5: "Melhor valor por pessoa" };
 
-export function Checkout() {
+export function Checkout({ djSlug }: { djSlug?: string } = {}) {
   const [open, setOpen] = useState(false); const [step, setStep] = useState<Step>("select");
   const [counts, setCounts] = useState<Record<Kind, number>>({ social: 0, normal: 0, combo5: 0 });
   const [cooler, setCooler] = useState(false);
@@ -34,11 +34,12 @@ export function Checkout() {
   useEffect(() => {
     if (!open) return;
     setSellerId("");
-    apiFetch("/api/sellers").then((r) => r.json()).then((d) => { if (Array.isArray(d.sellers)) setSellers(d.sellers); }).catch(() => setSellers([]));
+    if (!djSlug) apiFetch("/api/sellers").then((r) => r.json()).then((d) => { if (Array.isArray(d.sellers)) setSellers(d.sellers); }).catch(() => setSellers([]));
+    else setSellers([]);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
-  }, [open]);
+  }, [open, djSlug]);
   useEffect(() => { setExtraNames((all) => Array.from({ length: Math.max(0, totalGuests - 1) }, (_, i) => all[i] ?? "")); if (totalGuests < 2) setCooler(false); }, [totalGuests]);
   const change = (kind: Kind, n: number) => setCounts((all) => ({ ...all, [kind]: Math.max(0, Math.min(20, all[kind] + n)) }));
   async function submitOrder(event: FormEvent<HTMLFormElement>) {
@@ -49,7 +50,7 @@ export function Checkout() {
     const form = new FormData(event.currentTarget); setLoading(true); setError("");
     const guestNames = [buyer.trim(), ...extraNames.map((n) => n.trim())];
     try {
-      const r = await apiFetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyerName: buyer.trim(), email: form.get("email"), whatsapp: form.get("whatsapp"), cooler, sellerId: sellerId ? Number(sellerId) : null, tickets: kinds.map((kind, i) => ({ kind, guestName: guestNames[i] })) }) });
+      const r = await apiFetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyerName: buyer.trim(), email: form.get("email"), whatsapp: form.get("whatsapp"), cooler, sellerId: sellerId ? Number(sellerId) : null, djSlug: djSlug ?? null, tickets: kinds.map((kind, i) => ({ kind, guestName: guestNames[i] })) }) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error); setCode(data.code); setStep("payment");
     } catch (e) { setError(e instanceof Error ? e.message : "Falha ao criar pedido."); } finally { setLoading(false); }
   }

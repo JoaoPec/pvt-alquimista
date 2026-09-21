@@ -6,8 +6,9 @@ type Guest = { id: number; name: string; kind: string; checkedInAt: string | nul
 type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
 type Audit = { id: number; createdAt: string; action: string; orderCode: string | null; guestName: string | null; detail: string | null };
 type Receipt = { filename: string; contentType: string; dataBase64: string };
-type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
+type Complimentary = { id: number; name: string; listName: string; note: string | null; sellerId: number | null; sellerName: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
 type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; checkedIn: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
+type Seller = { id: number; name: string; slug: string | null; quota: number; active: boolean; sold: number; given: number; used: number; remaining: number };
 type Target = { kind: "guest" | "complimentary"; id: number; name: string };
 
 const br = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
@@ -19,6 +20,11 @@ export default function AdminPage() {
   const [audit, setAudit] = useState<Audit[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [complimentary, setComplimentary] = useState<Complimentary[]>([]);
+  const [sellers, setSellers] = useState<Seller[]>([]);
+  const [djName, setDjName] = useState("");
+  const [djSlug, setDjSlug] = useState("");
+  const [djQuota, setDjQuota] = useState("10");
+  const [newSellerId, setNewSellerId] = useState("");
   const [receipts, setReceipts] = useState<Record<string, Receipt>>({});
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<Target | null>(null);
@@ -39,7 +45,7 @@ export default function AdminPage() {
     if (a.ok) setAudit(ad.audit ?? []);
     const c = await apiFetch("/api/admin/complimentary", { headers: authHeaders(t) });
     const cd = await c.json();
-    if (c.ok) setComplimentary(cd.complimentary ?? []);
+    if (c.ok) { setComplimentary(cd.complimentary ?? []); setSellers(cd.sellers ?? []); }
   };
 
   const login = async (event: FormEvent) => {
@@ -69,13 +75,25 @@ export default function AdminPage() {
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao carregar comprovante."); }
   };
 
+  const addDj = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const r = await apiFetch("/api/sellers", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ name: djName, slug: djSlug, quota: Number(djQuota) || 10 }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      setSellers(d.sellers ?? []);
+      setDjName(""); setDjSlug(""); setDjQuota("10");
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao criar o link do DJ."); }
+  };
+
   const addComplimentary = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      const r = await apiFetch("/api/admin/complimentary", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ action: "add", name: newName, listName: newList, note: newNote }) });
+      const r = await apiFetch("/api/admin/complimentary", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ action: "add", name: newName, listName: newList, note: newNote, sellerId: newSellerId ? Number(newSellerId) : null }) });
       const d = await r.json();
       if (!r.ok) throw Error(d.error);
       setComplimentary(d.complimentary ?? []);
+      setSellers(d.sellers ?? []);
       setNewName("");
       setNewNote("");
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao adicionar cortesia."); }
@@ -126,17 +144,42 @@ export default function AdminPage() {
         {stats.bySeller.length > 0 && <article className="card stat wide"><span>POR VENDEDOR (APROVADOS)</span>{stats.bySeller.map((s) => <p key={s.seller}>{s.seller} · {s.orders} pedidos · {s.guests} pessoas · {br(s.cents)}</p>)}</article>}
       </section>}
 
+      <h2>DJs · link de venda e limite</h2>
+      <form className="card" onSubmit={addDj}>
+        <label>Nome do DJ<input value={djName} onChange={(e) => setDjName(e.target.value)} placeholder="Ex: DJ Alquimista" required /></label>
+        <label>Link (opcional)<input value={djSlug} onChange={(e) => setDjSlug(e.target.value)} placeholder="deixe vazio para gerar do nome" /></label>
+        <label>Limite total de ingressos<input value={djQuota} onChange={(e) => setDjQuota(e.target.value)} inputMode="numeric" placeholder="10" /></label>
+        <button className="btn" type="submit">Criar link do DJ</button>
+      </form>
+      {sellers.length === 0 && <p className="fineprint">Nenhum DJ cadastrado ainda.</p>}
+      {sellers.map((s) => {
+        const link = typeof window !== "undefined" ? `${window.location.origin}/dj/${s.slug}` : `/dj/${s.slug}`;
+        return <article className="card" key={s.id}>
+          <b>{s.name}</b>
+          <p>Usou <strong>{s.used}</strong> de {s.quota} · {s.sold} vendidos pelo link · {s.given} cortesias · restam <strong>{s.remaining}</strong></p>
+          <div className="pix-key"><code>{link}</code>
+            <button className="btn btn-sm" type="button" onClick={() => navigator.clipboard.writeText(link)}>Copiar link</button>
+          </div>
+        </article>;
+      })}
+
       <h2>Cortesias e listas (ex: lista do DJ)</h2>
       <form className="card" onSubmit={addComplimentary}>
         <label>Nome<input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome completo" required /></label>
         <label>Lista<input value={newList} onChange={(e) => setNewList(e.target.value)} placeholder="Ex: DJ, Produção, Imprensa" /></label>
         <label>Observação<input value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Opcional" /></label>
+        <label>Descontar do limite de qual DJ?
+          <select value={newSellerId} onChange={(e) => setNewSellerId(e.target.value)}>
+            <option value="">Sem DJ (não desconta de ninguém)</option>
+            {sellers.map((s) => <option key={s.id} value={s.id}>{s.name} · restam {s.remaining}</option>)}
+          </select>
+        </label>
         <button className="btn" type="submit">Adicionar cortesia</button>
       </form>
       {complimentary.length === 0 && <p className="fineprint">Nenhuma cortesia cadastrada ainda.</p>}
       {complimentary.map((c) => <article className="card" key={c.id}>
         <b>{c.name}</b>
-        <p>{c.listName}{c.note ? ` · ${c.note}` : ""}{c.checkedInAt ? " · entrou" : ""}</p>
+        <p>{c.listName}{c.sellerName ? ` · ${c.sellerName}` : ""}{c.note ? ` · ${c.note}` : ""}{c.checkedInAt ? " · entrou" : ""}</p>
         {c.removedAt
           ? <p>removido: {c.removedReason}</p>
           : <button className="btn btn-sm" type="button" onClick={() => askRemove({ kind: "complimentary", id: c.id, name: c.name })}>Remover</button>}

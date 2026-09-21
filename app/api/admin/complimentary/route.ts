@@ -1,6 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
 import { getBearerToken, isAdminToken } from "@/lib/auth";
-import { addComplimentary, listComplimentary, removeComplimentary } from "@/lib/db";
+import { addComplimentary, listComplimentary, listSellers, removeComplimentary } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -9,12 +9,12 @@ export function OPTIONS(request: Request) { return apiOptions(request); }
 export function GET(request: Request) {
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
-    return apiResponse(request, { complimentary: listComplimentary(true) });
+    return apiResponse(request, { complimentary: listComplimentary(true), sellers: listSellers(false) });
   } catch { return apiResponse(request, { error: "Não foi possível carregar as cortesias." }, { status: 503 }); }
 }
 
 export async function POST(request: Request) {
-  let body: { action?: "add" | "remove"; name?: string; listName?: string; note?: string; id?: number; reason?: string };
+  let body: { action?: "add" | "remove"; name?: string; listName?: string; note?: string; sellerId?: number | null; id?: number; reason?: string };
   try { body = await request.json(); } catch { return apiResponse(request, { error: "Dados inválidos." }, { status: 400 }); }
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
@@ -26,10 +26,17 @@ export async function POST(request: Request) {
         if (error instanceof Error && error.message === "Informe o motivo da remoção.") return apiResponse(request, { error: error.message }, { status: 422 });
         throw error;
       }
-      return apiResponse(request, { removed: true, complimentary: listComplimentary(true) });
+      return apiResponse(request, { removed: true, complimentary: listComplimentary(true), sellers: listSellers(false) });
     }
     if (!body.name?.trim()) return apiResponse(request, { error: "Informe o nome da cortesia." }, { status: 422 });
-    const created = addComplimentary({ name: body.name, listName: body.listName, note: body.note });
-    return apiResponse(request, { created, complimentary: listComplimentary(true) }, { status: 201 });
+    try {
+      const created = addComplimentary({ name: body.name, listName: body.listName, note: body.note, sellerId: body.sellerId ?? null });
+      return apiResponse(request, { created, complimentary: listComplimentary(true), sellers: listSellers(false) }, { status: 201 });
+    } catch (error) {
+      if (error instanceof Error && (error.message === "DJ inválido." || error.message.startsWith("Este DJ já usou"))) {
+        return apiResponse(request, { error: error.message }, { status: 422 });
+      }
+      throw error;
+    }
   } catch { return apiResponse(request, { error: "Não foi possível salvar a cortesia." }, { status: 503 }); }
 }

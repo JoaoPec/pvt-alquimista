@@ -35,7 +35,7 @@ export type AdminOrder = {
 
 export type AuditEntry = { id: number; createdAt: string; action: string; orderCode: string | null; guestId: number | null; guestName: string | null; detail: string | null };
 
-export type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null; createdAt: string };
+export type Complimentary = { id: number; name: string; listName: string; note: string | null; sellerId: number | null; sellerName: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null; createdAt: string };
 
 const databasePath = process.env.SQLITE_PATH || path.join(process.cwd(), "data", "alquimista.sqlite");
 let database: DatabaseSync | undefined;
@@ -51,6 +51,8 @@ function getDatabase() {
       CREATE TABLE IF NOT EXISTS sellers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
+        slug TEXT,
+        quota INTEGER NOT NULL DEFAULT 10,
         active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -100,6 +102,7 @@ function getDatabase() {
         name TEXT NOT NULL,
         list_name TEXT NOT NULL DEFAULT 'Cortesia',
         note TEXT,
+        seller_id INTEGER REFERENCES sellers(id) ON DELETE SET NULL,
         checked_in_at TEXT,
         removed_at TEXT,
         removed_reason TEXT,
@@ -121,9 +124,14 @@ function getDatabase() {
     addColumn("orders", "proof_type", "TEXT NOT NULL DEFAULT 'receipt'");
     addColumn("order_guests", "removed_at", "TEXT");
     addColumn("order_guests", "removed_reason", "TEXT");
+    addColumn("sellers", "slug", "TEXT");
+    addColumn("sellers", "quota", "INTEGER NOT NULL DEFAULT 10");
+    addColumn("complimentary_guests", "seller_id", "INTEGER REFERENCES sellers(id) ON DELETE SET NULL");
 
     // 3) Índices que dependem das colunas acima.
     database.exec(`CREATE INDEX IF NOT EXISTS orders_seller_idx ON orders(seller_id);`);
+    database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS sellers_slug_unique ON sellers(slug) WHERE slug IS NOT NULL;`);
+    database.exec(`CREATE INDEX IF NOT EXISTS complimentary_seller_idx ON complimentary_guests(seller_id);`);
   }
   return database;
 }
@@ -153,6 +161,12 @@ export function createOrder(input: CreateOrderInput) {
   if (input.sellerId != null) {
     const seller = db.prepare(`SELECT id FROM sellers WHERE id = ? AND active = 1`).get(input.sellerId) as Record<string, unknown> | undefined;
     if (!seller) throw new Error("Vendedor inválido.");
+    const usage = sellerUsage(input.sellerId);
+    if (input.tickets.length > usage.remaining) {
+      throw new Error(usage.remaining === 0
+        ? "Este link já atingiu o limite de ingressos."
+        : `Restam apenas ${usage.remaining} ingresso(s) neste link.`);
+    }
   }
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -216,24 +230,64 @@ export function listOrders(status?: OrderStatus) {
   return (rows as Array<Record<string, unknown>>).map(toAdminOrder);
 }
 
-export function listSellers(activeOnly = true) {
-  const db = getDatabase();
-  const rows = activeOnly
-    ? db.prepare(`SELECT id, name, active FROM sellers WHERE active = 1 ORDER BY name COLLATE NOCASE`).all()
-    : db.prepare(`SELECT id, name, active FROM sellers ORDER BY name COLLATE NOCASE`).all();
-  return (rows as Array<Record<string, unknown>>).map((row) => ({ id: Number(row.id), name: String(row.name), active: Boolean(row.active) }));
+function slugify(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 }
 
-export function upsertSeller(input: { id?: number; name: string; active?: boolean }) {
+/** Quanto um DJ já usou do próprio limite: vendidos pelo link + cortesias dadas. */
+export function sellerUsage(sellerId: number) {
   const db = getDatabase();
-  const name = input.name.trim();
+  const sold = db.prepare(`SELECT COUNT(*) AS n FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE o.seller_id = ? AND o.status <> 'rejected' AND g.removed_at IS NULL`).get(sellerId) as Record<string, unknown>;
+  const given = db.prepare(`SELECT COUNT(*) AS n FROM complimentary_guests WHERE seller_id = ? AND removed_at IS NULL`).get(sellerId) as Record<string, unknown>;
+  const row = db.prepare(`SELECT quota FROM sellers WHERE id = ?`).get(sellerId) as Record<string, unknown> | undefined;
+  const quota = Number(row?.quota ?? 10);
+  const soldCount = Number(sold.n);
+  const givenCount = Number(given.n);
+  const used = soldCount + givenCount;
+  return { sold: soldCount, given: givenCount, used, quota, remaining: Math.max(0, quota - used) };
+}
+
+export function listSellers(activeOnly = true) {
+  const db = getDatabase();
+  const rows = (activeOnly
+    ? db.prepare(`SELECT id, name, slug, quota, active FROM sellers WHERE active = 1 ORDER BY name COLLATE NOCASE`).all()
+    : db.prepare(`SELECT id, name, slug, quota, active FROM sellers ORDER BY name COLLATE NOCASE`).all()) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: Number(row.id), name: String(row.name),
+    slug: row.slug == null ? null : String(row.slug),
+    active: Boolean(row.active),
+    ...sellerUsage(Number(row.id)),
+  }));
+}
+
+export function findSellerBySlug(slug: string) {
+  const db = getDatabase();
+  const row = db.prepare(`SELECT id, name, slug, quota, active FROM sellers WHERE slug = ? AND active = 1`).get(slugify(slug)) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const id = Number(row.id);
+  return { id, name: String(row.name), slug: String(row.slug), ...sellerUsage(id) };
+}
+
+export function upsertSeller(input: { id?: number; name: string; slug?: string; quota?: number; active?: boolean }) {
+  const db = getDatabase();
+  const name = input.name.trim().slice(0, 80);
   if (!name) throw new Error("Nome do vendedor é obrigatório.");
+  const quota = Number.isInteger(input.quota) && (input.quota as number) > 0 ? (input.quota as number) : 10;
+
   if (input.id != null) {
-    db.prepare(`UPDATE sellers SET name = ?, active = ? WHERE id = ?`).run(name, input.active === false ? 0 : 1, input.id);
-    return { id: input.id, name, active: input.active !== false };
+    const current = db.prepare(`SELECT slug FROM sellers WHERE id = ?`).get(input.id) as Record<string, unknown> | undefined;
+    if (!current) throw new Error("Vendedor não encontrado.");
+    const slug = slugify(input.slug ?? String(current.slug ?? name)) || slugify(name);
+    const taken = db.prepare(`SELECT id FROM sellers WHERE slug = ? AND id <> ?`).get(slug, input.id) as Record<string, unknown> | undefined;
+    if (taken) throw new Error("Esse link já está em uso por outro DJ.");
+    db.prepare(`UPDATE sellers SET name = ?, slug = ?, quota = ?, active = ? WHERE id = ?`).run(name, slug, quota, input.active === false ? 0 : 1, input.id);
+    return { id: input.id, name, slug, quota, active: input.active !== false };
   }
-  const result = db.prepare(`INSERT INTO sellers (name, active) VALUES (?, ?)`).run(name, input.active === false ? 0 : 1);
-  return { id: Number(result.lastInsertRowid), name, active: input.active !== false };
+
+  let slug = slugify(input.slug ?? name) || `dj-${Date.now().toString(36)}`;
+  if (db.prepare(`SELECT id FROM sellers WHERE slug = ?`).get(slug)) slug = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
+  const result = db.prepare(`INSERT INTO sellers (name, slug, quota, active) VALUES (?, ?, ?, ?)`).run(name, slug, quota, input.active === false ? 0 : 1);
+  return { id: Number(result.lastInsertRowid), name, slug, quota, active: input.active !== false };
 }
 
 export function orderStats() {
@@ -283,6 +337,8 @@ function toComplimentary(row: Record<string, unknown>): Complimentary {
   return {
     id: Number(row.id), name: String(row.name), listName: String(row.list_name),
     note: row.note == null ? null : String(row.note),
+    sellerId: row.seller_id == null ? null : Number(row.seller_id),
+    sellerName: row.seller_name == null ? null : String(row.seller_name),
     checkedInAt: row.checked_in_at == null ? null : String(row.checked_in_at),
     removedAt: row.removed_at == null ? null : String(row.removed_at),
     removedReason: row.removed_reason == null ? null : String(row.removed_reason),
@@ -290,22 +346,30 @@ function toComplimentary(row: Record<string, unknown>): Complimentary {
   };
 }
 
-export function addComplimentary(input: { name: string; listName?: string; note?: string }) {
+export function addComplimentary(input: { name: string; listName?: string; note?: string; sellerId?: number | null }) {
   const db = getDatabase();
   const name = input.name.trim().slice(0, 120);
   if (!name) throw new Error("Informe o nome da cortesia.");
   const listName = (input.listName ?? "Cortesia").trim().slice(0, 60) || "Cortesia";
   const note = input.note?.trim().slice(0, 200) || null;
-  const result = db.prepare(`INSERT INTO complimentary_guests (name, list_name, note) VALUES (?, ?, ?)`).run(name, listName, note);
+  const sellerId = input.sellerId == null || input.sellerId === 0 ? null : Number(input.sellerId);
+  if (sellerId != null) {
+    const seller = db.prepare(`SELECT id FROM sellers WHERE id = ?`).get(sellerId) as Record<string, unknown> | undefined;
+    if (!seller) throw new Error("DJ inválido.");
+    const usage = sellerUsage(sellerId);
+    if (usage.remaining < 1) throw new Error(`Este DJ já usou os ${usage.quota} ingressos do limite.`);
+  }
+  const result = db.prepare(`INSERT INTO complimentary_guests (name, list_name, note, seller_id) VALUES (?, ?, ?, ?)`).run(name, listName, note, sellerId);
   audit("complimentary.added", { guestId: Number(result.lastInsertRowid), guestName: name, detail: listName });
-  return { id: Number(result.lastInsertRowid), name, listName };
+  return { id: Number(result.lastInsertRowid), name, listName, sellerId };
 }
 
 export function listComplimentary(includeRemoved = false) {
   const db = getDatabase();
+  const select = `SELECT c.*, s.name AS seller_name FROM complimentary_guests c LEFT JOIN sellers s ON s.id = c.seller_id`;
   const rows = (includeRemoved
-    ? db.prepare(`SELECT * FROM complimentary_guests ORDER BY list_name COLLATE NOCASE, name COLLATE NOCASE`).all()
-    : db.prepare(`SELECT * FROM complimentary_guests WHERE removed_at IS NULL ORDER BY list_name COLLATE NOCASE, name COLLATE NOCASE`).all()) as Array<Record<string, unknown>>;
+    ? db.prepare(`${select} ORDER BY c.list_name COLLATE NOCASE, c.name COLLATE NOCASE`).all()
+    : db.prepare(`${select} WHERE c.removed_at IS NULL ORDER BY c.list_name COLLATE NOCASE, c.name COLLATE NOCASE`).all()) as Array<Record<string, unknown>>;
   return rows.map(toComplimentary);
 }
 
