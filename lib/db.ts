@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 export type TicketKind = "social" | "normal" | "combo5";
 export type OrderStatus = "awaiting_receipt" | "pending_approval" | "approved" | "rejected";
+export type OrderProof = "receipt" | "declared";
 
 type CreateOrderInput = {
   buyerName: string;
@@ -100,6 +101,8 @@ function getDatabase() {
     const guestNames = new Set(guestColumns.map((column) => String(column.name)));
     if (!guestNames.has("removed_at")) database.exec(`ALTER TABLE order_guests ADD COLUMN removed_at TEXT;`);
     if (!guestNames.has("removed_reason")) database.exec(`ALTER TABLE order_guests ADD COLUMN removed_reason TEXT;`);
+    const orderCols = new Set(columns.map((column) => String(column.name)));
+    if (!orderCols.has("proof_type")) database.exec(`ALTER TABLE orders ADD COLUMN proof_type TEXT NOT NULL DEFAULT 'receipt';`);
   }
   return database;
 }
@@ -154,8 +157,33 @@ export function attachReceipt(code: string, receipt: { filename: string; content
   db.prepare(`INSERT INTO payment_receipts (order_id, filename, content_type, byte_length, file_data) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(order_id) DO UPDATE SET filename=excluded.filename, content_type=excluded.content_type, byte_length=excluded.byte_length, file_data=excluded.file_data, uploaded_at=CURRENT_TIMESTAMP`)
     .run(orderId, receipt.filename, receipt.contentType, receipt.data.byteLength, receipt.data);
-  db.prepare(`UPDATE orders SET status = 'pending_approval', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+  db.prepare(`UPDATE orders SET status = 'pending_approval', proof_type = 'receipt', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+  audit("order.proof_receipt", { orderCode: code, detail: receipt.filename });
   return true;
+}
+
+export function declarePaid(code: string) {
+  const db = getDatabase();
+  const order = db.prepare(`SELECT id, status FROM orders WHERE code = ?`).get(code) as Record<string, unknown> | undefined;
+  if (!order) return false;
+  if (order.status === "approved") throw new Error("Pedido já aprovado.");
+  db.prepare(`UPDATE orders SET status = 'pending_approval', proof_type = 'declared', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(Number(order.id));
+  audit("order.proof_declared", { orderCode: code, detail: "cliente declarou pagamento sem anexo" });
+  return true;
+}
+
+export function publicOrder(code: string) {
+  const db = getDatabase();
+  const row = db.prepare(`SELECT o.code, o.buyer_name, o.email, o.total_cents, o.cooler, o.status, o.proof_type, o.created_at, s.name AS seller_name FROM orders o LEFT JOIN sellers s ON s.id = o.seller_id WHERE o.code = ?`).get(code) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const guests = db.prepare(`SELECT guest_name, ticket_kind, removed_at FROM order_guests WHERE order_id = (SELECT id FROM orders WHERE code = ?) ORDER BY id`).all(code) as Array<Record<string, unknown>>;
+  return {
+    code: String(row.code), buyerName: String(row.buyer_name), email: String(row.email),
+    totalCents: Number(row.total_cents), cooler: Boolean(row.cooler), status: String(row.status),
+    proofType: String(row.proof_type ?? "receipt"), createdAt: String(row.created_at),
+    sellerName: row.seller_name == null ? null : String(row.seller_name),
+    guests: guests.filter((g) => !g.removed_at).map((g) => ({ name: String(g.guest_name), kind: String(g.ticket_kind) })),
+  };
 }
 
 export function listOrders(status?: OrderStatus) {
