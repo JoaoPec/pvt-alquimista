@@ -5,23 +5,27 @@ import { toDataURL } from "qrcode";
 import { buildPixPayload } from "@/lib/pix";
 import { COOLER_ENABLED } from "@/lib/features";
 import { apiFetch, apiUrl } from "@/lib/client-api";
+import { canAdd as canAddTicket, changeTicket, clampToLimit, emptyCounts, guestsOf, type Counts, type TicketKind } from "@/lib/tickets";
 
-type Kind = "social" | "normal" | "combo5";
+type Kind = TicketKind;
 type Step = "select" | "payment" | "sent";
 const pixKey = process.env.NEXT_PUBLIC_PIX_KEY ?? "";
 const labels: Record<Kind, string> = { social: "Social · 1 kg de alimento", normal: "Normal", combo5: "Combo 5 · 5 pessoas" };
 const prices: Record<Kind, number> = { social: 20, normal: 25, combo5: 80 };
 const perks: Record<Kind, string> = { social: "Solidário, valor reduzido", normal: "Entrada individual", combo5: "Melhor valor por pessoa" };
 
-export function Checkout({ djSlug }: { djSlug?: string } = {}) {
+export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxTickets?: number; djName?: string } = {}) {
   const [open, setOpen] = useState(false); const [step, setStep] = useState<Step>("select");
-  const [counts, setCounts] = useState<Record<Kind, number>>({ social: 0, normal: 0, combo5: 0 });
+  const [counts, setCounts] = useState<Counts>(emptyCounts());
+  const [limit, setLimit] = useState(maxTickets ?? 20);
   const [cooler, setCooler] = useState(false);
   const [buyer, setBuyer] = useState(""); const [extraNames, setExtraNames] = useState<string[]>([]);
   const [sellers, setSellers] = useState<Array<{ id: number; name: string }>>([]); const [sellerId, setSellerId] = useState("");
   const [receiptName, setReceiptName] = useState("");
   const [code, setCode] = useState(""); const [qr, setQr] = useState(""); const [pixPayload, setPixPayload] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
-  const totalGuests = counts.social + counts.normal + counts.combo5 * 5;
+  const totalGuests = guestsOf(counts);
+  const canAdd = (kind: Kind) => canAddTicket(counts, kind, limit);
+  const atLimit = totalGuests >= limit;
   const total = counts.social * 20 + counts.normal * 25 + counts.combo5 * 80 + (cooler ? 100 : 0);
   const kinds = useMemo(() => [...Array(counts.social).fill("social"), ...Array(counts.normal).fill("normal"), ...Array(counts.combo5 * 5).fill("combo5")] as Kind[], [counts]);
   useEffect(() => {
@@ -41,8 +45,21 @@ export function Checkout({ djSlug }: { djSlug?: string } = {}) {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [open, djSlug]);
+  // Reconfere o limite real do link do DJ toda vez que o checkout abre.
+  useEffect(() => {
+    if (!open) return;
+    if (!djSlug) { setLimit(maxTickets ?? 20); return; }
+    let alive = true;
+    apiFetch(`/api/dj/${encodeURIComponent(djSlug)}`)
+      .then((r) => r.json())
+      .then((d) => { if (alive && typeof d.dj?.remaining === "number") setLimit(Math.max(0, d.dj.remaining)); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [open, djSlug, maxTickets]);
+  // Se o limite caiu (outra venda entrou), encolhe a seleção para caber.
+  useEffect(() => { setCounts((all) => clampToLimit(all, limit)); }, [limit]);
   useEffect(() => { setExtraNames((all) => Array.from({ length: Math.max(0, totalGuests - 1) }, (_, i) => all[i] ?? "")); if (totalGuests < 2) setCooler(false); }, [totalGuests]);
-  const change = (kind: Kind, n: number) => setCounts((all) => ({ ...all, [kind]: Math.max(0, Math.min(20, all[kind] + n)) }));
+  const change = (kind: Kind, n: number) => setCounts((all) => changeTicket(all, kind, n, limit));
   async function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!totalGuests) return setError("Escolha pelo menos 1 ingresso.");
@@ -60,13 +77,19 @@ export function Checkout({ djSlug }: { djSlug?: string } = {}) {
   return <><button className="ticket-action" onClick={() => { setOpen(true); setStep("select"); }}>Comprar ingresso <span>↗</span></button>{open && <div className="checkout-backdrop" role="dialog" aria-modal="true"><div className="checkout-shell alchemy-checkout"><button className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button>
     {step === "select" && <form onSubmit={submitOrder}><p className="kicker">INGRESSOS · LUA CHEIA</p><h2>Garanta antes de virar o lote.</h2><p className="checkout-ticket">Toque em <strong>adicionar</strong> para montar sua lista. O Combo 5 sai por apenas R$ 16 por pessoa.</p>
       <div className="ticket-picker">{(Object.keys(labels) as Kind[]).map((kind) => (
-        <article className={`picker-card${kind === "combo5" ? " featured" : ""}${counts[kind] > 0 ? " active" : ""}`} key={kind}>
+        <article className={`picker-card${kind === "combo5" ? " featured" : ""}${counts[kind] > 0 ? " active" : ""}${!canAdd(kind) && counts[kind] === 0 ? " sold-out" : ""}`} key={kind}>
           <div className="picker-info"><b>{labels[kind]}</b><p>{perks[kind]}</p><span className="price">R$ {prices[kind]}</span>{counts[kind] > 0 && <span className="picked">{counts[kind]} selecionado{counts[kind] > 1 ? "s" : ""}</span>}</div>
           {counts[kind] === 0
-            ? <button className="btn add-btn" type="button" onClick={() => change(kind, 1)}>+ Adicionar</button>
-            : <div className="counter" role="group" aria-label={`Quantidade ${labels[kind]}`}><button className="btn step-btn" type="button" aria-label={`Remover um ${labels[kind]}`} onClick={() => change(kind, -1)}>−</button><b aria-live="polite">{counts[kind]}</b><button className="btn step-btn" type="button" aria-label={`Adicionar um ${labels[kind]}`} onClick={() => change(kind, 1)}>+</button></div>}
+            ? <button className="btn add-btn" type="button" disabled={!canAdd(kind)} onClick={() => change(kind, 1)}>{canAdd(kind) ? "+ Adicionar" : "Limite atingido"}</button>
+            : <div className="counter" role="group" aria-label={`Quantidade ${labels[kind]}`}><button className="btn step-btn" type="button" aria-label={`Remover um ${labels[kind]}`} onClick={() => change(kind, -1)}>−</button><b aria-live="polite">{counts[kind]}</b><button className="btn step-btn" type="button" aria-label={`Adicionar um ${labels[kind]}`} disabled={!canAdd(kind)} onClick={() => change(kind, 1)}>+</button></div>}
         </article>))}</div>
-      {totalGuests === 0 && <p className="fineprint">Comece tocando em <strong>+ Adicionar</strong> em pelo menos 1 formato acima.</p>}
+      {djSlug && <p className={atLimit ? "quota-note full" : "quota-note"}>
+        {atLimit
+          ? <>Você já selecionou os <strong>{limit}</strong> ingressos disponíveis neste link{djName ? ` de ${djName}` : ""}.</>
+          : <>Este link{djName ? ` de ${djName}` : ""} tem <strong>{limit}</strong> ingresso{limit > 1 ? "s" : ""} disponíve{limit > 1 ? "is" : "l"} · você escolheu <strong>{totalGuests}</strong>.</>}
+      </p>}
+      {totalGuests === 0 && !atLimit && <p className="fineprint">Comece tocando em <strong>+ Adicionar</strong> em pelo menos 1 formato acima.</p>}
+      {totalGuests === 0 && atLimit && <p className="error">Este link não tem mais ingressos disponíveis.</p>}
       {totalGuests > 0 && <>
         <label>Pessoa 1 · Comprador<input required value={buyer} onChange={(e) => setBuyer(e.target.value)} placeholder="Seu nome completo (vale como ingresso 1)" /></label>
         <label>E-mail<input required type="email" name="email" placeholder="Para receber a confirmação" /></label>
