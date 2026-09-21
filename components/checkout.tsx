@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toDataURL } from "qrcode";
+import { buildPixPayload } from "@/lib/pix";
 
 type Kind = "social" | "normal" | "combo5";
 type Step = "select" | "payment" | "sent";
@@ -17,11 +18,18 @@ export function Checkout() {
   const [counts, setCounts] = useState<Record<Kind, number>>({ social: 0, normal: 0, combo5: 0 });
   const [cooler, setCooler] = useState(false);
   const [buyer, setBuyer] = useState(""); const [extraNames, setExtraNames] = useState<string[]>([]);
-  const [code, setCode] = useState(""); const [qr, setQr] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
+  const [code, setCode] = useState(""); const [qr, setQr] = useState(""); const [pixPayload, setPixPayload] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const totalGuests = counts.social + counts.normal + counts.combo5 * 5;
   const total = counts.social * 20 + counts.normal * 25 + counts.combo5 * 80 + (cooler ? 100 : 0);
   const kinds = useMemo(() => [...Array(counts.social).fill("social"), ...Array(counts.normal).fill("normal"), ...Array(counts.combo5 * 5).fill("combo5")] as Kind[], [counts]);
-  useEffect(() => { if (open && pixKey) toDataURL(pixKey, { margin: 1, width: 320, color: { dark: "#0a283c", light: "#f5ecda" } }).then(setQr); }, [open]);
+  useEffect(() => {
+    if (step !== "payment" || !pixKey) return;
+    try {
+      const payload = buildPixPayload({ key: pixKey, name: "PVT ALQUIMISTA", city: "AREMBEPE", amount: total, txid: code.replace(/[^A-Za-z0-9]/g, "") });
+      setPixPayload(payload);
+      toDataURL(payload, { margin: 1, width: 320, color: { dark: "#0a283c", light: "#f5ecda" } }).then(setQr).catch(() => setQr(""));
+    } catch { setPixPayload(""); setQr(""); }
+  }, [step, total, code]);
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -62,6 +70,6 @@ export function Checkout() {
         <p className="checkout-ticket">Total <strong>R$ {total.toFixed(2).replace(".", ",")}</strong></p>
         <button className="checkout-submit btn" disabled={loading}>{loading ? "Criando pedido…" : `Continuar · R$ ${total.toFixed(2).replace(".", ",")}`}</button></>}
       </form>}
-    {step === "payment" && <form onSubmit={submitReceipt}><p className="kicker">PEDIDO {code}</p><h2>Pague via Pix.</h2>{qr && <img className="pix-qr" src={qr} alt="QR Code Pix" />}<div className="pix-key"><code>{pixKey}</code><button className="btn btn-sm" type="button" onClick={() => navigator.clipboard.writeText(pixKey)}>Copiar chave</button></div><label>Print do pagamento<input required name="receipt" type="file" accept="image/png,image/jpeg,image/webp" /></label><button className="checkout-submit btn" disabled={loading}>{loading ? "Enviando…" : "Enviar comprovante"}</button></form>}
+    {step === "payment" && <form onSubmit={submitReceipt}><p className="kicker">PEDIDO {code}</p><h2>Pague via Pix.</h2><p className="checkout-ticket">Total <strong>R$ {total.toFixed(2).replace(".", ",")}</strong> · o QR já vem com o valor exato.</p>{qr && <img className="pix-qr" src={qr} alt="QR Code Pix" />}<div className="pix-key"><code>{pixPayload || pixKey}</code><button className="btn btn-sm" type="button" onClick={() => navigator.clipboard.writeText(pixPayload || pixKey)}>Copiar Pix</button></div><label>Print do pagamento<input required name="receipt" type="file" accept="image/png,image/jpeg,image/webp" /></label><button className="checkout-submit btn" disabled={loading}>{loading ? "Enviando…" : "Enviar comprovante"}</button></form>}
     {step === "sent" && <><p className="kicker">COMPROVANTE ENVIADO</p><h2>Agora é com a alquimia.</h2><p className="checkout-ticket">Seu pedido {code} aguarda aprovação. Após aprovado, os nomes entram na lista da portaria.</p></>}{error && <p className="error">{error}</p>}</div></div>}</>;
 }
