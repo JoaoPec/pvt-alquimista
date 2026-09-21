@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toDataURL } from "qrcode";
 import { buildPixPayload } from "@/lib/pix";
+import { COOLER_ENABLED } from "@/lib/features";
 import { apiFetch, apiUrl } from "@/lib/client-api";
 
 type Kind = "social" | "normal" | "combo5";
@@ -72,7 +73,7 @@ export function Checkout({ djSlug }: { djSlug?: string } = {}) {
         <label>WhatsApp<input required name="whatsapp" placeholder="Para avisos do evento" /></label>
         {sellers.length > 0 && <label>Quem te vendeu?<select value={sellerId} onChange={(e) => setSellerId(e.target.value)}><option value="">Selecione (opcional)</option>{sellers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>}
         {kinds.slice(1).map((kind, i) => <label key={i}>Pessoa {i + 2} · {labels[kind]}<input required value={extraNames[i] ?? ""} placeholder="Nome completo" onChange={(e) => setExtraNames((all) => all.map((name, index) => index === i ? e.target.value : name))} /></label>)}
-        {totalGuests >= 2 && <label className="cooler-toggle"><input type="checkbox" checked={cooler} onChange={(e) => setCooler(e.target.checked)} /> Adicionar cooler (+ R$ 100)</label>}
+        {COOLER_ENABLED && totalGuests >= 2 && <label className="cooler-toggle"><input type="checkbox" checked={cooler} onChange={(e) => setCooler(e.target.checked)} /> Adicionar cooler (+ R$ 100)</label>}
         <p className="checkout-ticket">Total <strong>R$ {total.toFixed(2).replace(".", ",")}</strong></p>
         <button className="checkout-submit btn" disabled={loading}>{loading ? "Criando pedido…" : `Continuar · R$ ${total.toFixed(2).replace(".", ",")}`}</button></>}
       </form>}

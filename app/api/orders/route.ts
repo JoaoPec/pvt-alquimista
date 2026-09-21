@@ -1,5 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
 import { createOrder, findSellerBySlug, type TicketKind } from "@/lib/db";
+import { COOLER_ENABLED } from "@/lib/features";
 
 export const runtime = "nodejs";
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     return apiResponse(request, { error: "Preencha comprador, contato e o nome de cada participante." }, { status: 422 });
   }
   const normalized = tickets as Array<{ kind: TicketKind; guestName: string }>;
-  const cooler = Boolean(payload.cooler);
+  const cooler = COOLER_ENABLED && Boolean(payload.cooler);
   if (cooler && normalized.length < 2) return apiResponse(request, { error: "O adicional de cooler exige pelo menos 2 ingressos." }, { status: 422 });
   const comboGuests = normalized.filter((ticket) => ticket.kind === "combo5").length;
   if (comboGuests % 5 !== 0) return apiResponse(request, { error: "Cada Combo 5 precisa ter cinco participantes." }, { status: 422 });
