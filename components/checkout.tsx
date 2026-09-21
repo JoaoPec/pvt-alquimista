@@ -3,12 +3,11 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toDataURL } from "qrcode";
 import { buildPixPayload } from "@/lib/pix";
+import { apiFetch, apiUrl } from "@/lib/client-api";
 
 type Kind = "social" | "normal" | "combo5";
 type Step = "select" | "payment" | "sent";
 const pixKey = process.env.NEXT_PUBLIC_PIX_KEY ?? "";
-const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
-const api = (path: string) => `${apiBase}${path}`;
 const labels: Record<Kind, string> = { social: "Social · 1 kg de alimento", normal: "Normal", combo5: "Combo 5 · 5 pessoas" };
 const prices: Record<Kind, number> = { social: 20, normal: 25, combo5: 80 };
 const perks: Record<Kind, string> = { social: "Solidário, valor reduzido", normal: "Entrada individual", combo5: "Melhor valor por pessoa" };
@@ -35,7 +34,7 @@ export function Checkout() {
   useEffect(() => {
     if (!open) return;
     setSellerId("");
-    fetch(api("/api/sellers")).then((r) => r.json()).then((d) => { if (Array.isArray(d.sellers)) setSellers(d.sellers); }).catch(() => setSellers([]));
+    apiFetch("/api/sellers").then((r) => r.json()).then((d) => { if (Array.isArray(d.sellers)) setSellers(d.sellers); }).catch(() => setSellers([]));
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
@@ -50,12 +49,12 @@ export function Checkout() {
     const form = new FormData(event.currentTarget); setLoading(true); setError("");
     const guestNames = [buyer.trim(), ...extraNames.map((n) => n.trim())];
     try {
-      const r = await fetch(api("/api/orders"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyerName: buyer.trim(), email: form.get("email"), whatsapp: form.get("whatsapp"), cooler, sellerId: sellerId ? Number(sellerId) : null, tickets: kinds.map((kind, i) => ({ kind, guestName: guestNames[i] })) }) });
+      const r = await apiFetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyerName: buyer.trim(), email: form.get("email"), whatsapp: form.get("whatsapp"), cooler, sellerId: sellerId ? Number(sellerId) : null, tickets: kinds.map((kind, i) => ({ kind, guestName: guestNames[i] })) }) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error); setCode(data.code); setStep("payment");
     } catch (e) { setError(e instanceof Error ? e.message : "Falha ao criar pedido."); } finally { setLoading(false); }
   }
-  async function submitReceipt(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const receipt = new FormData(event.currentTarget).get("receipt"); if (!(receipt instanceof File)) return setError("Escolha o comprovante ou use o botão Já paguei."); setLoading(true); setError(""); try { const body = new FormData(); body.set("receipt", receipt); const r = await fetch(api(`/api/orders/${code}/receipt`), { method: "POST", body }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao enviar comprovante."); } finally { setLoading(false); } }
-  async function declarePaid() { if (!window.confirm(`Confirmar que você já pagou R$ ${total.toFixed(2).replace(".", ",")} via Pix para o pedido ${code}?`)) return; setLoading(true); setError(""); try { const r = await fetch(api(`/api/orders/${code}/declare-paid`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao confirmar pagamento."); } finally { setLoading(false); } }
+  async function submitReceipt(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const receipt = new FormData(event.currentTarget).get("receipt"); if (!(receipt instanceof File)) return setError("Escolha o comprovante ou use o botão Já paguei."); setLoading(true); setError(""); try { const body = new FormData(); body.set("receipt", receipt); const r = await apiFetch(`/api/orders/${code}/receipt`, { method: "POST", body }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao enviar comprovante."); } finally { setLoading(false); } }
+  async function declarePaid() { if (!window.confirm(`Confirmar que você já pagou R$ ${total.toFixed(2).replace(".", ",")} via Pix para o pedido ${code}?`)) return; setLoading(true); setError(""); try { const r = await apiFetch(`/api/orders/${code}/declare-paid`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao confirmar pagamento."); } finally { setLoading(false); } }
   return <><button className="ticket-action" onClick={() => { setOpen(true); setStep("select"); }}>Comprar ingresso <span>↗</span></button>{open && <div className="checkout-backdrop" role="dialog" aria-modal="true"><div className="checkout-shell alchemy-checkout"><button className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button>
     {step === "select" && <form onSubmit={submitOrder}><p className="kicker">INGRESSOS · LUA CHEIA</p><h2>Garanta antes de virar o lote.</h2><p className="checkout-ticket">Toque em <strong>adicionar</strong> para montar sua lista. O Combo 5 sai por apenas R$ 16 por pessoa.</p>
       <div className="ticket-picker">{(Object.keys(labels) as Kind[]).map((kind) => (

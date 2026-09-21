@@ -1,35 +1,179 @@
 "use client";
 import { FormEvent, useState } from "react";
-const base=(process.env.NEXT_PUBLIC_API_BASE_URL??"").replace(/\/$/,"");const api=(p:string)=>`${base}${p}`;
-type Guest={id:number;name:string;kind:string;checkedInAt:string|null;removedAt:string|null;removedReason:string|null};
-type Order={code:string;buyerName:string;email:string;whatsapp:string;totalCents:number;cooler:boolean;status:string;receiptUploaded:boolean;sellerName:string|null;createdAt:string;guests:Guest[]};
-type Audit={id:number;createdAt:string;action:string;orderCode:string|null;guestName:string|null;detail:string|null};
-type Receipt={filename:string;contentType:string;dataBase64:string};
-type Stats={byStatus:{status:string;orders:number;cents:number}[];guests:{status:string;kind:string;count:number}[];removed:number;checkedIn:number;bySeller:{seller:string;orders:number;cents:number;guests:number}[]};
-export default function AdminPage(){
-const [token,setToken]=useState("");const [password,setPassword]=useState("");const [orders,setOrders]=useState<Order[]>([]);const [audit,setAudit]=useState<Audit[]>([]);const [error,setError]=useState("");const [receipts,setReceipts]=useState<Record<string,Receipt>>({});const [removing,setRemoving]=useState<Guest|null>(null);const [reason,setReason]=useState("");const [confirmText,setConfirmText]=useState("");const [stats,setStats]=useState<Stats|null>(null);
-const auth=(t:string)=>({Authorization:`Bearer ${t}`});
-const load=async(t:string)=>{const r=await fetch(api('/api/admin'),{headers:auth(t)});const d=await r.json();if(!r.ok)throw Error(d.error);setOrders(d.orders);setStats(d.stats ?? null);const a=await fetch(api('/api/admin/guests'),{headers:auth(t)});const ad=await a.json();if(a.ok)setAudit(ad.audit)};
-const login=async(e:FormEvent)=>{e.preventDefault();try{const r=await fetch(api('/api/admin'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});const d=await r.json();if(!r.ok)throw Error(d.error);setToken(d.token);await load(d.token)}catch(x){setError(x instanceof Error?x.message:'Falha')}};
-const action=async(code:string,act:'approve'|'reject')=>{await fetch(api('/api/admin'),{method:'POST',headers:{'Content-Type':'application/json',...auth(token)},body:JSON.stringify({code,action:act})});await load(token)};
-const view=async(code:string)=>{if(receipts[code])return;const r=await fetch(api(`/api/admin/receipts/${code}`),{headers:auth(token)});const d=await r.json();if(r.ok)setReceipts(s=>({...s,[code]:d}))};
-const download=(code:string)=>{window.open(api(`/api/admin/receipts/${code}/download?token=${encodeURIComponent(token)}`),'_blank')};
-const askRemove=(g:Guest)=>{setRemoving(g);setReason("");setConfirmText("")};
-const doRemove=async()=>{if(!removing||confirmText!=="REMOVER")return;const r=await fetch(api('/api/admin/guests'),{method:'POST',headers:{'Content-Type':'application/json',...auth(token)},body:JSON.stringify({guestId:removing.id,reason})});const d=await r.json();if(!r.ok){setError(d.error);return}setRemoving(null);await load(token)};
-return <main className="admin-page">{!token?<form className="card" onSubmit={login}><p className="kicker">PVT ALQUIMISTA</p><h1>Administração</h1><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Senha" required/><button className="btn" type="submit">Entrar</button>{error&&<p>{error}</p>}</form>:<section><header><p className="kicker">ADMIN</p><h1>Pedidos e comprovantes</h1></header>
-{stats&&(()=>{const br=(c:number)=>`R$ ${(c/100).toFixed(2).replace('.',',')}`;const st=(s:string)=>stats.byStatus.find(x=>x.status===s);const g=(s:string,k:string)=>stats.guests.find(x=>x.status===s&&x.kind===k)?.count ?? 0;const ap=st('approved');return <section className="stats-grid">
-<article className="card stat hero"><span>RECEITA APROVADA</span><b>{br(ap?.cents ?? 0)}</b><p>{ap?.orders ?? 0} pedidos aprovados</p></article>
-<article className="card stat"><span>INGRESSOS APROVADOS</span><b>{g('approved','social')+g('approved','normal')+g('approved','combo5')}</b><p>social {g('approved','social')} · normal {g('approved','normal')} · combo5 {g('approved','combo5')}</p></article>
-<article className="card stat"><span>CHECK-IN NA PORTARIA</span><b>{stats.checkedIn}</b><p>entradas confirmadas</p></article>
-<article className="card stat"><span>AGUARDANDO APROVAÇÃO</span><b>{st('pending_approval')?.orders ?? 0}</b><p>{br(st('pending_approval')?.cents ?? 0)} em análise</p></article>
-<article className="card stat"><span>AGUARDANDO COMPROVANTE</span><b>{st('awaiting_receipt')?.orders ?? 0}</b><p>{br(st('awaiting_receipt')?.cents ?? 0)} sem envio</p></article>
-<article className="card stat"><span>REMOVIDOS (PRESERVADOS)</span><b>{stats.removed}</b><p>fora da portaria, com log</p></article>
-{stats.bySeller.length>0&&<article className="card stat wide"><span>POR VENDEDOR (APROVADOS)</span>{stats.bySeller.map(s=><p key={s.seller}>{s.seller} · {s.orders} pedidos · {s.guests} pessoas · {br(s.cents)}</p>)}</article>}
-</section>})()}
-{orders.map(o=><article className="card" key={o.code}><b>{o.code} · R$ {(o.totalCents/100).toFixed(2).replace('.',',')}</b><p>{o.buyerName} · {o.whatsapp} · {o.email}</p>{o.sellerName&&<p>Vendedor: {o.sellerName}</p>}<p>{o.cooler?'Com cooler':'Sem cooler'} · Status: {o.status}</p>
-{o.guests.map(g=><p key={g.id}>{g.removedAt?`${g.name} (removido: ${g.removedReason})`:g.name} · {g.kind}{g.checkedInAt?' · entrou':''} {!g.removedAt&&<button className="btn btn-sm" type="button" onClick={()=>askRemove(g)}>Remover</button>}</p>)}
-{o.receiptUploaded&&<div><button className="btn btn-sm" type="button" onClick={()=>view(o.code)}>Ver comprovante</button> <button className="btn btn-sm" type="button" onClick={()=>download(o.code)}>Baixar</button>{receipts[o.code]&&<img src={`data:${receipts[o.code].contentType};base64,${receipts[o.code].dataBase64}`} alt={`Comprovante ${o.code}`} style={{maxWidth:'100%',borderRadius:8}}/>}</div>}
-{o.status==='pending_approval'&&<div><button className="btn" onClick={()=>action(o.code,'approve')}>Aprovar</button> <button className="btn" onClick={()=>action(o.code,'reject')}>Recusar</button></div>}</article>)}
-<h2>Log de auditoria (nada é apagado)</h2>{audit.map(a=><p key={a.id}>#{a.id} · {a.createdAt} · {a.action} · {a.orderCode} · {a.guestName} · {a.detail}</p>)}
-{removing&&<div className="checkout-backdrop"><div className="checkout-shell"><h2>Remover {removing.name}?</h2><p>O nome sai da lista da portaria, mas o registro é preservado com motivo e log. Digite REMOVER para confirmar.</p><label>Motivo<input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Ex: pagamento estornado"/></label><label>Confirmação<input value={confirmText} onChange={e=>setConfirmText(e.target.value)} placeholder="REMOVER"/></label><button className="btn" disabled={confirmText!=="REMOVER"||!reason.trim()} onClick={doRemove}>Confirmar remoção</button> <button className="btn" onClick={()=>setRemoving(null)}>Cancelar</button></div></div>}
-{error&&<p>{error}</p>}</section>}</main>}
+import { apiFetch, authHeaders, apiUrl } from "@/lib/client-api";
+
+type Guest = { id: number; name: string; kind: string; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
+type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
+type Audit = { id: number; createdAt: string; action: string; orderCode: string | null; guestName: string | null; detail: string | null };
+type Receipt = { filename: string; contentType: string; dataBase64: string };
+type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
+type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; checkedIn: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
+type Target = { kind: "guest" | "complimentary"; id: number; name: string };
+
+const br = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
+
+export default function AdminPage() {
+  const [token, setToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [audit, setAudit] = useState<Audit[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [complimentary, setComplimentary] = useState<Complimentary[]>([]);
+  const [receipts, setReceipts] = useState<Record<string, Receipt>>({});
+  const [error, setError] = useState("");
+  const [removing, setRemoving] = useState<Target | null>(null);
+  const [reason, setReason] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newList, setNewList] = useState("DJ");
+  const [newNote, setNewNote] = useState("");
+
+  const load = async (t: string) => {
+    const r = await apiFetch("/api/admin", { headers: authHeaders(t) });
+    const d = await r.json();
+    if (!r.ok) throw Error(d.error);
+    setOrders(d.orders ?? []);
+    setStats(d.stats ?? null);
+    const a = await apiFetch("/api/admin/guests", { headers: authHeaders(t) });
+    const ad = await a.json();
+    if (a.ok) setAudit(ad.audit ?? []);
+    const c = await apiFetch("/api/admin/complimentary", { headers: authHeaders(t) });
+    const cd = await c.json();
+    if (c.ok) setComplimentary(cd.complimentary ?? []);
+  };
+
+  const login = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const r = await apiFetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      setToken(d.token);
+      await load(d.token);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao entrar."); }
+  };
+
+  const action = async (code: string, act: "approve" | "reject") => {
+    try {
+      await apiFetch("/api/admin", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ code, action: act }) });
+      await load(token);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha na ação."); }
+  };
+
+  const view = async (code: string) => {
+    if (receipts[code]) return;
+    try {
+      const r = await apiFetch(`/api/admin/receipts/${code}`, { headers: authHeaders(token) });
+      const d = await r.json();
+      if (r.ok) setReceipts((all) => ({ ...all, [code]: d }));
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao carregar comprovante."); }
+  };
+
+  const addComplimentary = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const r = await apiFetch("/api/admin/complimentary", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ action: "add", name: newName, listName: newList, note: newNote }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      setComplimentary(d.complimentary ?? []);
+      setNewName("");
+      setNewNote("");
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao adicionar cortesia."); }
+  };
+
+  const askRemove = (target: Target) => { setRemoving(target); setReason(""); setConfirmText(""); };
+
+  const doRemove = async () => {
+    if (!removing || confirmText !== "REMOVER") return;
+    try {
+      const path = removing.kind === "guest" ? "/api/admin/guests" : "/api/admin/complimentary";
+      const body = removing.kind === "guest" ? { guestId: removing.id, reason } : { action: "remove", id: removing.id, reason };
+      const r = await apiFetch(path, { method: "POST", headers: authHeaders(token, true), body: JSON.stringify(body) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      setRemoving(null);
+      await load(token);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao remover."); }
+  };
+
+  const approvedByKind = (kind: string) => stats?.guests.find((g) => g.status === "approved" && g.kind === kind)?.count ?? 0;
+
+  if (!token) {
+    return <main className="admin-page">
+      <form className="card" onSubmit={login}>
+        <p className="kicker">PVT ALQUIMISTA</p>
+        <h1>Administração</h1>
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Senha" required />
+        <button className="btn" type="submit">Entrar</button>
+        {error && <p className="error">{error}</p>}
+      </form>
+    </main>;
+  }
+
+  return <main className="admin-page">
+    <section>
+      <header><p className="kicker">ADMIN</p><h1>Pedidos, cortesias e comprovantes</h1></header>
+      {error && <p className="error">{error}</p>}
+
+      {stats && <section className="stats-grid">
+        <article className="card stat hero"><span>RECEITA APROVADA</span><b>{br(stats.byStatus.find((s) => s.status === "approved")?.cents ?? 0)}</b><p>{stats.byStatus.find((s) => s.status === "approved")?.orders ?? 0} pedidos aprovados</p></article>
+        <article className="card stat"><span>INGRESSOS APROVADOS</span><b>{approvedByKind("social") + approvedByKind("normal") + approvedByKind("combo5")}</b><p>social {approvedByKind("social")} · normal {approvedByKind("normal")} · combo5 {approvedByKind("combo5")}</p></article>
+        <article className="card stat"><span>CORTESIAS</span><b>{stats.complimentary.total}</b><p>{stats.complimentary.checkedIn} já entraram</p></article>
+        <article className="card stat"><span>CHECK-IN NA PORTARIA</span><b>{stats.checkedIn}</b><p>entradas confirmadas</p></article>
+        <article className="card stat"><span>AGUARDANDO APROVAÇÃO</span><b>{stats.byStatus.find((s) => s.status === "pending_approval")?.orders ?? 0}</b><p>{br(stats.byStatus.find((s) => s.status === "pending_approval")?.cents ?? 0)} em análise</p></article>
+        <article className="card stat"><span>AGUARDANDO COMPROVANTE</span><b>{stats.byStatus.find((s) => s.status === "awaiting_receipt")?.orders ?? 0}</b><p>{br(stats.byStatus.find((s) => s.status === "awaiting_receipt")?.cents ?? 0)} sem envio</p></article>
+        <article className="card stat"><span>REMOVIDOS (PRESERVADOS)</span><b>{stats.removed}</b><p>fora da portaria, com log</p></article>
+        {stats.bySeller.length > 0 && <article className="card stat wide"><span>POR VENDEDOR (APROVADOS)</span>{stats.bySeller.map((s) => <p key={s.seller}>{s.seller} · {s.orders} pedidos · {s.guests} pessoas · {br(s.cents)}</p>)}</article>}
+      </section>}
+
+      <h2>Cortesias e listas (ex: lista do DJ)</h2>
+      <form className="card" onSubmit={addComplimentary}>
+        <label>Nome<input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome completo" required /></label>
+        <label>Lista<input value={newList} onChange={(e) => setNewList(e.target.value)} placeholder="Ex: DJ, Produção, Imprensa" /></label>
+        <label>Observação<input value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Opcional" /></label>
+        <button className="btn" type="submit">Adicionar cortesia</button>
+      </form>
+      {complimentary.length === 0 && <p className="fineprint">Nenhuma cortesia cadastrada ainda.</p>}
+      {complimentary.map((c) => <article className="card" key={c.id}>
+        <b>{c.name}</b>
+        <p>{c.listName}{c.note ? ` · ${c.note}` : ""}{c.checkedInAt ? " · entrou" : ""}</p>
+        {c.removedAt
+          ? <p>removido: {c.removedReason}</p>
+          : <button className="btn btn-sm" type="button" onClick={() => askRemove({ kind: "complimentary", id: c.id, name: c.name })}>Remover</button>}
+      </article>)}
+
+      <h2>Pedidos</h2>
+      {orders.map((o) => <article className="card" key={o.code}>
+        <b>{o.code} · {br(o.totalCents)}</b>
+        <p>{o.buyerName} · {o.whatsapp} · {o.email}</p>
+        {o.sellerName && <p>Vendedor: {o.sellerName}</p>}
+        <p>{o.cooler ? "Com cooler" : "Sem cooler"} · Status: {o.status}</p>
+        {o.guests.map((g) => <p key={g.id}>
+          {g.removedAt ? `${g.name} (removido: ${g.removedReason})` : g.name} · {g.kind}{g.checkedInAt ? " · entrou" : ""}{" "}
+          {!g.removedAt && <button className="btn btn-sm" type="button" onClick={() => askRemove({ kind: "guest", id: g.id, name: g.name })}>Remover</button>}
+        </p>)}
+        {o.receiptUploaded && <div>
+          <button className="btn btn-sm" type="button" onClick={() => view(o.code)}>Ver comprovante</button>{" "}
+          <button className="btn btn-sm" type="button" onClick={() => window.open(`${apiUrl(`/api/admin/receipts/${o.code}/download`)}?token=${encodeURIComponent(token)}`, "_blank")}>Baixar</button>
+          {receipts[o.code] && <img src={`data:${receipts[o.code].contentType};base64,${receipts[o.code].dataBase64}`} alt={`Comprovante ${o.code}`} style={{ maxWidth: "100%", borderRadius: 8 }} />}
+        </div>}
+        {o.status === "pending_approval" && <div>
+          <button className="btn" onClick={() => action(o.code, "approve")}>Aprovar</button>{" "}
+          <button className="btn" onClick={() => action(o.code, "reject")}>Recusar</button>
+        </div>}
+      </article>)}
+
+      <h2>Log de auditoria (nada é apagado)</h2>
+      {audit.map((a) => <p key={a.id}>#{a.id} · {a.createdAt} · {a.action} · {a.orderCode} · {a.guestName} · {a.detail}</p>)}
+
+      {removing && <div className="checkout-backdrop"><div className="checkout-shell">
+        <h2>Remover {removing.name}?</h2>
+        <p>O nome sai da lista da portaria, mas o registro é preservado com motivo e log. Digite REMOVER para confirmar.</p>
+        <label>Motivo<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex: pagamento estornado" /></label>
+        <label>Confirmação<input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="REMOVER" /></label>
+        <button className="btn" disabled={confirmText !== "REMOVER" || !reason.trim()} onClick={doRemove}>Confirmar remoção</button>{" "}
+        <button className="btn" onClick={() => setRemoving(null)}>Cancelar</button>
+      </div></div>}
+    </section>
+  </main>;
+}

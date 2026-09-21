@@ -2,9 +2,8 @@
 
 import { use, useEffect, useState } from "react";
 import { toDataURL } from "qrcode";
+import { apiFetch } from "@/lib/client-api";
 
-const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
-const api = (path: string) => `${apiBase}${path}`;
 type Order = { code: string; buyerName: string; totalCents: number; cooler: boolean; status: string; proofType: string; sellerName: string | null; guests: { name: string; kind: string }[] };
 
 export default function PedidoPage({ params }: { params: Promise<{ code: string }> }) {
@@ -13,7 +12,7 @@ export default function PedidoPage({ params }: { params: Promise<{ code: string 
   const [error, setError] = useState("");
   const [qr, setQr] = useState("");
   useEffect(() => {
-    fetch(api(`/api/orders/${code.toUpperCase()}`)).then((r) => r.json()).then((d) => {
+    apiFetch(`/api/orders/${code.toUpperCase()}`).then((r) => r.json()).then((d) => {
       if (!d.order) { setError(d.error ?? "Pedido não encontrado."); return; }
       setOrder(d.order);
     }).catch(() => setError("Não foi possível carregar o pedido."));

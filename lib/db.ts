@@ -35,6 +35,8 @@ export type AdminOrder = {
 
 export type AuditEntry = { id: number; createdAt: string; action: string; orderCode: string | null; guestId: number | null; guestName: string | null; detail: string | null };
 
+export type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null; createdAt: string };
+
 const databasePath = process.env.SQLITE_PATH || path.join(process.cwd(), "data", "alquimista.sqlite");
 let database: DatabaseSync | undefined;
 
@@ -93,9 +95,20 @@ function getDatabase() {
         guest_name TEXT,
         detail TEXT
       );
+      CREATE TABLE IF NOT EXISTS complimentary_guests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        list_name TEXT NOT NULL DEFAULT 'Cortesia',
+        note TEXT,
+        checked_in_at TEXT,
+        removed_at TEXT,
+        removed_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
       CREATE INDEX IF NOT EXISTS orders_status_created_idx ON orders(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS order_guests_order_idx ON order_guests(order_id);
       CREATE INDEX IF NOT EXISTS admin_audit_log_created_idx ON admin_audit_log(created_at DESC);
+      CREATE INDEX IF NOT EXISTS complimentary_list_idx ON complimentary_guests(list_name, name);
     `);
 
     // 2) Evolução de colunas em bancos antigos (ALTER só quando falta a coluna).
@@ -230,11 +243,13 @@ export function orderStats() {
   const removed = db.prepare(`SELECT COUNT(*) AS n FROM order_guests WHERE removed_at IS NOT NULL`).get() as Record<string, unknown>;
   const checkedIn = db.prepare(`SELECT COUNT(*) AS n FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE o.status = 'approved' AND g.removed_at IS NULL AND g.checked_in_at IS NOT NULL`).get() as Record<string, unknown>;
   const bySeller = db.prepare(`SELECT COALESCE(s.name,'(sem vendedor)') AS seller, COUNT(DISTINCT o.id) AS orders, COALESCE(SUM(o.total_cents),0) AS cents, COUNT(g.id) AS guests FROM orders o LEFT JOIN sellers s ON s.id = o.seller_id LEFT JOIN order_guests g ON g.order_id = o.id AND g.removed_at IS NULL WHERE o.status = 'approved' GROUP BY COALESCE(s.name,'(sem vendedor)') ORDER BY cents DESC`).all() as Array<Record<string, unknown>>;
+  const complimentary = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN checked_in_at IS NOT NULL THEN 1 ELSE 0 END) AS checked FROM complimentary_guests WHERE removed_at IS NULL`).get() as Record<string, unknown>;
   return {
     byStatus: byStatus.map((row) => ({ status: String(row.status), orders: Number(row.orders), cents: Number(row.cents) })),
     guests: guests.map((row) => ({ status: String(row.status), kind: String(row.ticket_kind), count: Number(row.n) })),
     removed: Number(removed.n), checkedIn: Number(checkedIn.n),
     bySeller: bySeller.map((row) => ({ seller: String(row.seller), orders: Number(row.orders), cents: Number(row.cents), guests: Number(row.guests) })),
+    complimentary: { total: Number(complimentary.total ?? 0), checkedIn: Number(complimentary.checked ?? 0) },
   };
 }
 
@@ -260,6 +275,55 @@ export function listAudit(limit = 200) {
   const db = getDatabase();
   const rows = db.prepare(`SELECT id, created_at, action, order_code, guest_id, guest_name, detail FROM admin_audit_log ORDER BY id DESC LIMIT ?`).all(Math.min(Math.max(limit, 1), 500)) as Array<Record<string, unknown>>;
   return rows.map((row) => ({ id: Number(row.id), createdAt: String(row.created_at), action: String(row.action), orderCode: row.order_code == null ? null : String(row.order_code), guestId: row.guest_id == null ? null : Number(row.guest_id), guestName: row.guest_name == null ? null : String(row.guest_name), detail: row.detail == null ? null : String(row.detail) }));
+}
+
+/* ---------------------------- CORTESIAS / LISTAS ---------------------------- */
+
+function toComplimentary(row: Record<string, unknown>): Complimentary {
+  return {
+    id: Number(row.id), name: String(row.name), listName: String(row.list_name),
+    note: row.note == null ? null : String(row.note),
+    checkedInAt: row.checked_in_at == null ? null : String(row.checked_in_at),
+    removedAt: row.removed_at == null ? null : String(row.removed_at),
+    removedReason: row.removed_reason == null ? null : String(row.removed_reason),
+    createdAt: String(row.created_at),
+  };
+}
+
+export function addComplimentary(input: { name: string; listName?: string; note?: string }) {
+  const db = getDatabase();
+  const name = input.name.trim().slice(0, 120);
+  if (!name) throw new Error("Informe o nome da cortesia.");
+  const listName = (input.listName ?? "Cortesia").trim().slice(0, 60) || "Cortesia";
+  const note = input.note?.trim().slice(0, 200) || null;
+  const result = db.prepare(`INSERT INTO complimentary_guests (name, list_name, note) VALUES (?, ?, ?)`).run(name, listName, note);
+  audit("complimentary.added", { guestId: Number(result.lastInsertRowid), guestName: name, detail: listName });
+  return { id: Number(result.lastInsertRowid), name, listName };
+}
+
+export function listComplimentary(includeRemoved = false) {
+  const db = getDatabase();
+  const rows = (includeRemoved
+    ? db.prepare(`SELECT * FROM complimentary_guests ORDER BY list_name COLLATE NOCASE, name COLLATE NOCASE`).all()
+    : db.prepare(`SELECT * FROM complimentary_guests WHERE removed_at IS NULL ORDER BY list_name COLLATE NOCASE, name COLLATE NOCASE`).all()) as Array<Record<string, unknown>>;
+  return rows.map(toComplimentary);
+}
+
+export function removeComplimentary(id: number, reason: string) {
+  const db = getDatabase();
+  const cleanReason = reason.trim().slice(0, 280);
+  if (!cleanReason) throw new Error("Informe o motivo da remoção.");
+  const row = db.prepare(`SELECT id, name, removed_at FROM complimentary_guests WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+  if (!row || row.removed_at) return false;
+  db.prepare(`UPDATE complimentary_guests SET removed_at = CURRENT_TIMESTAMP, removed_reason = ? WHERE id = ?`).run(cleanReason, id);
+  audit("complimentary.removed", { guestId: id, guestName: String(row.name), detail: cleanReason });
+  return true;
+}
+
+export function checkInComplimentary(id: number) {
+  const db = getDatabase();
+  const result = db.prepare(`UPDATE complimentary_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE id = ? AND removed_at IS NULL`).run(id);
+  return result.changes > 0;
 }
 
 export function receiptForOrder(code: string) {
