@@ -28,6 +28,7 @@ export const MENU: MenuGroup[] = [
     title: "Sem álcool",
     kicker: "PRA SEGURAR A ONDA",
     items: [
+      { name: "Refrigerante (lata)", price: 6 },
       { name: "Água", price: 4 },
     ],
   },
