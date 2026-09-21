@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toDataURL } from "qrcode";
 import { buildPixPayload } from "@/lib/pix";
-import { COOLER_ENABLED } from "@/lib/features";
+import { COOLER_ENABLED, COOLER_PRICE } from "@/lib/features";
 import { apiFetch, apiUrl } from "@/lib/client-api";
 import { canAdd as canAddTicket, changeTicket, clampToLimit, emptyCounts, guestsOf, type Counts, type TicketKind } from "@/lib/tickets";
 
@@ -26,7 +26,7 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
   const totalGuests = guestsOf(counts);
   const canAdd = (kind: Kind) => canAddTicket(counts, kind, limit);
   const atLimit = totalGuests >= limit;
-  const total = counts.social * 20 + counts.normal * 25 + counts.combo5 * 80 + (cooler ? 100 : 0);
+  const total = counts.social * 20 + counts.normal * 25 + counts.combo5 * 80 + (cooler ? COOLER_PRICE : 0);
   const kinds = useMemo(() => [...Array(counts.social).fill("social"), ...Array(counts.normal).fill("normal"), ...Array(counts.combo5 * 5).fill("combo5")] as Kind[], [counts]);
   useEffect(() => {
     if (step !== "payment" || !pixKey) return;
@@ -58,7 +58,7 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
   }, [open, djSlug, maxTickets]);
   // Se o limite caiu (outra venda entrou), encolhe a seleção para caber.
   useEffect(() => { setCounts((all) => clampToLimit(all, limit)); }, [limit]);
-  useEffect(() => { setExtraNames((all) => Array.from({ length: Math.max(0, totalGuests - 1) }, (_, i) => all[i] ?? "")); if (totalGuests < 2) setCooler(false); }, [totalGuests]);
+  useEffect(() => { setExtraNames((all) => Array.from({ length: Math.max(0, totalGuests - 1) }, (_, i) => all[i] ?? "")); }, [totalGuests]);
   const change = (kind: Kind, n: number) => setCounts((all) => changeTicket(all, kind, n, limit));
   async function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,6 +83,20 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
             ? <button className="btn add-btn" type="button" disabled={!canAdd(kind)} onClick={() => change(kind, 1)}>{canAdd(kind) ? "+ Adicionar" : "Limite atingido"}</button>
             : <div className="counter" role="group" aria-label={`Quantidade ${labels[kind]}`}><button className="btn step-btn" type="button" aria-label={`Remover um ${labels[kind]}`} onClick={() => change(kind, -1)}>−</button><b aria-live="polite">{counts[kind]}</b><button className="btn step-btn" type="button" aria-label={`Adicionar um ${labels[kind]}`} disabled={!canAdd(kind)} onClick={() => change(kind, 1)}>+</button></div>}
         </article>))}</div>
+      {COOLER_ENABLED && <section className="extra-block">
+        <p className="extra-kicker">EXTRA OPCIONAL · NÃO É INGRESSO</p>
+        <article className={cooler ? "extra-card on" : "extra-card"}>
+          <div className="extra-info">
+            <b>Cooler</b>
+            <p>Leve seu cooler com bebida e gelo. Pode adicionar junto com qualquer ingresso — não precisa de quantidade mínima.</p>
+            <span className="price">R$ {COOLER_PRICE}</span>
+            {cooler && <span className="picked">adicionado</span>}
+          </div>
+          {cooler
+            ? <button className="btn extra-btn on" type="button" onClick={() => setCooler(false)}>− Remover cooler</button>
+            : <button className="btn extra-btn" type="button" onClick={() => setCooler(true)}>+ Adicionar cooler</button>}
+        </article>
+      </section>}
       {djSlug && <p className={atLimit ? "quota-note full" : "quota-note"}>
         {atLimit
           ? <>Você já selecionou os <strong>{limit}</strong> ingressos disponíveis neste link{djName ? ` de ${djName}` : ""}.</>
@@ -96,7 +110,7 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
         <label>WhatsApp<input required name="whatsapp" placeholder="Para avisos do evento" /></label>
         {sellers.length > 0 && <label>Quem te vendeu?<select value={sellerId} onChange={(e) => setSellerId(e.target.value)}><option value="">Selecione (opcional)</option>{sellers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>}
         {kinds.slice(1).map((kind, i) => <label key={i}>Pessoa {i + 2} · {labels[kind]}<input required value={extraNames[i] ?? ""} placeholder="Nome completo" onChange={(e) => setExtraNames((all) => all.map((name, index) => index === i ? e.target.value : name))} /></label>)}
-        {COOLER_ENABLED && totalGuests >= 2 && <label className="cooler-toggle"><input type="checkbox" checked={cooler} onChange={(e) => setCooler(e.target.checked)} /> Adicionar cooler (+ R$ 100)</label>}
+        {COOLER_ENABLED && cooler && <p className="extra-summary">Cooler incluído · + R$ {COOLER_PRICE},00</p>}
         <p className="checkout-ticket">Total <strong>R$ {total.toFixed(2).replace(".", ",")}</strong></p>
         <button className="checkout-submit btn" disabled={loading}>{loading ? "Criando pedido…" : `Continuar · R$ ${total.toFixed(2).replace(".", ",")}`}</button></>}
       </form>}

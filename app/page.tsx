@@ -1,6 +1,6 @@
 import { Checkout } from "@/components/checkout";
 import { Reveal } from "@/components/reveal";
-import { COOLER_ENABLED } from "@/lib/features";
+import { COOLER_ENABLED, COOLER_PRICE } from "@/lib/features";
 
 const sounds = ["PSYTECH", "PROGRESSIVE", "FULLON", "PSYTRANCE"];
 const whatsapp = "https://chat.whatsapp.com/KKGTkftbQDt1iNMJRPq246";
@@ -39,9 +39,10 @@ export default function Home() {
             <ul><li>5 ingressos no mesmo combo</li><li>Economia para o grupo</li></ul><Checkout />
           </article>
           {COOLER_ENABLED && <article className="ticket-card cream cooler-card">
-            <p className="ticket-index">04 · ADICIONAL</p><h3>COOLER<br /><small>+ R$ 100</small></h3>
-            <p className="ticket-copy">Opção liberada somente a partir da compra de 2 ingressos.</p>
-            <ul><li>Disponível para 2+ ingressos</li><li>Adicional de R$ 100</li></ul><Checkout />
+            <span className="ticket-badge">EXTRA OPCIONAL</span>
+            <p className="ticket-index">04 · ADICIONAL</p><h3>COOLER<br /><small>+ R$ {COOLER_PRICE}</small></h3>
+            <p className="ticket-copy">Leve seu cooler com bebida e gelo. Vale para qualquer compra, sem quantidade mínima.</p>
+            <ul><li>Junto com qualquer ingresso</li><li>Sem combinação mínima</li></ul><Checkout />
           </article>}
         </Reveal>
         <div className="lineup-wrap" id="lineup"><h2>LINE-UP</h2><div className="sound-list">{sounds.map((sound, index) => <span key={sound}><b>0{index + 1}</b>{sound}</span>)}</div></div>
