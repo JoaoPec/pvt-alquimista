@@ -4,7 +4,7 @@ import { createOrder, type TicketKind } from "@/lib/db";
 export const runtime = "nodejs";
 
 const ticketPrices: Record<TicketKind, number> = { social: 2000, normal: 2500, combo5: 8000 };
-type Payload = { buyerName?: string; email?: string; whatsapp?: string; tickets?: Array<{ kind?: string; guestName?: string }>; cooler?: boolean };
+type Payload = { buyerName?: string; email?: string; whatsapp?: string; tickets?: Array<{ kind?: string; guestName?: string }>; cooler?: boolean; sellerId?: number | null };
 
 export function OPTIONS(request: Request) { return apiOptions(request); }
 
@@ -28,9 +28,12 @@ export async function POST(request: Request) {
     + (comboGuests / 5) * ticketPrices.combo5
     + (cooler ? 10000 : 0);
   try {
-    const order = createOrder({ buyerName, email, whatsapp, tickets: normalized, cooler, totalCents });
+    const sellerId = payload.sellerId == null || payload.sellerId === 0 ? null : Number(payload.sellerId);
+    if (sellerId != null && !Number.isInteger(sellerId)) return apiResponse(request, { error: "Vendedor inválido." }, { status: 422 });
+    const order = createOrder({ buyerName, email, whatsapp, tickets: normalized, cooler, totalCents, sellerId });
     return apiResponse(request, { ...order, totalCents }, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "Vendedor inválido.") return apiResponse(request, { error: error.message }, { status: 422 });
     return apiResponse(request, { error: "Não foi possível iniciar o pedido." }, { status: 503 });
   }
 }
