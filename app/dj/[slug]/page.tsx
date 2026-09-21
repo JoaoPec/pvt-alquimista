@@ -33,7 +33,6 @@ export default function DjPage({ params }: { params: Promise<{ slug: string }> }
       </p>
     </section>
     <section className="dj-body">
-      <p className="checkout-ticket">Cada DJ tem um limite total de {dj.quota} ingressos, somando os vendidos por este link e as cortesias que ele distribuir.</p>
       {soldOut
         ? <p className="fineprint">Fale com a produção para mais informações.</p>
         : <Checkout djSlug={dj.slug} maxTickets={dj.remaining} djName={dj.name} />}
