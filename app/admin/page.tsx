@@ -7,12 +7,14 @@ type Order = { code: string; buyerName: string; email: string; whatsapp: string;
 type Audit = { id: number; createdAt: string; action: string; orderCode: string | null; guestName: string | null; detail: string | null };
 type Receipt = { filename: string; contentType: string; dataBase64: string };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; sellerId: number | null; sellerName: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
-type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; checkedIn: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
+type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; removedApproved: number; checkedIn: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
 type Seller = { id: number; name: string; slug: string | null; quota: number; active: boolean; sold: number; given: number; used: number; remaining: number };
 type Target = { kind: "guest" | "complimentary" | "seller"; id: number; name: string };
 type Tab = "visao" | "djs" | "cortesias" | "pedidos" | "log";
 
 const br = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
+/** "1 pedido" / "2 pedidos" — evita o "1 pedidos" na tela. */
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const statusLabel: Record<string, string> = {
   awaiting_receipt: "Aguardando comprovante",
   pending_approval: "Aguardando aprovação",
@@ -177,14 +179,14 @@ export default function AdminPage() {
       {error && <p className="error">{error}</p>}
 
       {tab === "visao" && stats && <section className="stats-grid">
-        <article className="card stat hero"><span>RECEITA APROVADA</span><b>{br(byStatus("approved")?.cents ?? 0)}</b><p>{byStatus("approved")?.orders ?? 0} pedidos aprovados</p></article>
+        <article className="card stat hero"><span>RECEITA APROVADA</span><b>{br(byStatus("approved")?.cents ?? 0)}</b><p>{plural(byStatus("approved")?.orders ?? 0, "pedido aprovado", "pedidos aprovados")}{stats.removedApproved > 0 ? ` · ${plural(stats.removedApproved, "convidado removido", "convidados removidos")} depois` : ""}</p></article>
         <article className="card stat"><span>INGRESSOS APROVADOS</span><b>{approvedByKind("social") + approvedByKind("normal") + approvedByKind("combo5")}</b><p>social {approvedByKind("social")} · normal {approvedByKind("normal")} · combo5 {approvedByKind("combo5")}</p></article>
-        <article className="card stat"><span>CORTESIAS</span><b>{stats.complimentary.total}</b><p>{stats.complimentary.checkedIn} já entraram</p></article>
-        <article className="card stat"><span>CHECK-IN NA PORTARIA</span><b>{stats.checkedIn}</b><p>entradas confirmadas</p></article>
+        <article className="card stat"><span>CORTESIAS</span><b>{stats.complimentary.total}</b><p>{plural(stats.complimentary.checkedIn, "já entrou", "já entraram")}</p></article>
+        <article className="card stat"><span>CHECK-IN NA PORTARIA</span><b>{stats.checkedIn}</b><p>{plural(stats.checkedIn, "entrada confirmada", "entradas confirmadas")}</p></article>
         <article className="card stat"><span>AGUARDANDO APROVAÇÃO</span><b>{pending}</b><p>{br(byStatus("pending_approval")?.cents ?? 0)} em análise</p></article>
         <article className="card stat"><span>AGUARDANDO COMPROVANTE</span><b>{byStatus("awaiting_receipt")?.orders ?? 0}</b><p>{br(byStatus("awaiting_receipt")?.cents ?? 0)} sem envio</p></article>
         <article className="card stat"><span>REMOVIDOS (PRESERVADOS)</span><b>{stats.removed}</b><p>fora da portaria, com log</p></article>
-        {stats.bySeller.length > 0 && <article className="card stat wide"><span>POR VENDEDOR (APROVADOS)</span>{stats.bySeller.map((s) => <p key={s.seller}>{s.seller} · {s.orders} pedidos · {s.guests} pessoas · {br(s.cents)}</p>)}</article>}
+        {stats.bySeller.length > 0 && <article className="card stat wide"><span>POR VENDEDOR (APROVADOS)</span>{stats.bySeller.map((s) => <p key={s.seller}>{s.seller} · {plural(s.orders, "pedido", "pedidos")} · {plural(s.guests, "pessoa", "pessoas")} · {br(s.cents)}</p>)}</article>}
       </section>}
 
       {tab === "djs" && <>

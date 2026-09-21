@@ -308,13 +308,14 @@ export function orderStats() {
   const byStatus = db.prepare(`SELECT status, COUNT(*) AS orders, COALESCE(SUM(total_cents),0) AS cents FROM orders GROUP BY status`).all() as Array<Record<string, unknown>>;
   const guests = db.prepare(`SELECT o.status, g.ticket_kind, COUNT(*) AS n FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE g.removed_at IS NULL GROUP BY o.status, g.ticket_kind`).all() as Array<Record<string, unknown>>;
   const removed = db.prepare(`SELECT COUNT(*) AS n FROM order_guests WHERE removed_at IS NOT NULL`).get() as Record<string, unknown>;
+  const removedApproved = db.prepare(`SELECT COUNT(*) AS n FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE o.status = 'approved' AND g.removed_at IS NOT NULL`).get() as Record<string, unknown>;
   const checkedIn = db.prepare(`SELECT COUNT(*) AS n FROM order_guests g JOIN orders o ON o.id = g.order_id WHERE o.status = 'approved' AND g.removed_at IS NULL AND g.checked_in_at IS NOT NULL`).get() as Record<string, unknown>;
   const bySeller = db.prepare(`SELECT COALESCE(s.name,'(sem vendedor)') AS seller, COUNT(DISTINCT o.id) AS orders, COALESCE(SUM(o.total_cents),0) AS cents, COUNT(g.id) AS guests FROM orders o LEFT JOIN sellers s ON s.id = o.seller_id LEFT JOIN order_guests g ON g.order_id = o.id AND g.removed_at IS NULL WHERE o.status = 'approved' GROUP BY COALESCE(s.name,'(sem vendedor)') ORDER BY cents DESC`).all() as Array<Record<string, unknown>>;
   const complimentary = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN checked_in_at IS NOT NULL THEN 1 ELSE 0 END) AS checked FROM complimentary_guests WHERE removed_at IS NULL`).get() as Record<string, unknown>;
   return {
     byStatus: byStatus.map((row) => ({ status: String(row.status), orders: Number(row.orders), cents: Number(row.cents) })),
     guests: guests.map((row) => ({ status: String(row.status), kind: String(row.ticket_kind), count: Number(row.n) })),
-    removed: Number(removed.n), checkedIn: Number(checkedIn.n),
+    removed: Number(removed.n), removedApproved: Number(removedApproved.n), checkedIn: Number(checkedIn.n),
     bySeller: bySeller.map((row) => ({ seller: String(row.seller), orders: Number(row.orders), cents: Number(row.cents), guests: Number(row.guests) })),
     complimentary: { total: Number(complimentary.total ?? 0), checkedIn: Number(complimentary.checked ?? 0) },
   };
