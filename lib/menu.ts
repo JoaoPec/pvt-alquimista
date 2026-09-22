@@ -11,6 +11,7 @@ export const MENU: MenuGroup[] = [
     kicker: "GELADAS",
     items: [
       { name: "Brahma", price: 7 },
+      { name: "Itaipava", price: 7 },
       { name: "Devassa", price: 8 },
       { name: "Heineken", price: 12 },
     ],
