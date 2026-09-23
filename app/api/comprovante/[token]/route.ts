@@ -1,5 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
 import { readListToken } from "@/lib/auth";
+import { ordenarNatural } from "@/lib/comprovante";
 import { listComplimentary } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -16,7 +17,7 @@ export function GET(request: Request, { params }: { params: Promise<{ token: str
     const lista = readListToken(token);
     if (!lista) return apiResponse(request, { error: "Comprovante inválido ou expirado." }, { status: 404 });
     try {
-      const convidados = listComplimentary(false).filter((c) => c.listName === lista);
+      const convidados = ordenarNatural(listComplimentary(false).filter((c) => c.listName === lista), (c) => c.name);
       if (convidados.length === 0) return apiResponse(request, { error: "Esta lista não tem mais ingressos." }, { status: 404 });
       return apiResponse(request, {
         comprovante: {

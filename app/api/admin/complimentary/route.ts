@@ -1,5 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
 import { createListToken, getBearerToken, isAdminToken } from "@/lib/auth";
+import { ordenarNatural } from "@/lib/comprovante";
 import { addComplimentary, listComplimentary, listSellers, removeComplimentary } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ function listasComToken() {
       dj: doGrupo.find((c) => c.sellerName)?.sellerName ?? null,
       total: doGrupo.length,
       entrados: doGrupo.filter((c) => c.checkedInAt).length,
-      convidados: doGrupo.map((c) => ({ nome: c.name, entrou: Boolean(c.checkedInAt) })),
+      convidados: ordenarNatural(doGrupo, (c) => c.name).map((c) => ({ nome: c.name, entrou: Boolean(c.checkedInAt) })),
       token: createListToken(nome),
     };
   });

@@ -16,6 +16,13 @@ export const EVENTO = {
   onde: "Dunas Mar · Aldeia Hippie, Arembepe",
 };
 
+/**
+ * Ordem natural: "Darlan 2" vem antes de "Darlan 10".
+ * O banco ordena por texto, o que jogaria o 10 logo depois do nome puro.
+ */
+const colador = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
+export const ordenarNatural = <T,>(itens: T[], nome: (item: T) => string) => [...itens].sort((a, b) => colador.compare(nome(a), nome(b)));
+
 export const linkComprovante = (token: string) => `https://pvt-alquimista.vercel.app/comprovante/${token}`;
 
 /** Bloco pronto para colar numa mensagem ou e-mail. */
