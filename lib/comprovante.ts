@@ -49,3 +49,35 @@ export function comprovanteTexto(c: Comprovante, link: string) {
 export function comprovanteNomes(c: Comprovante) {
   return c.convidados.map((g) => g.nome).join("\n");
 }
+
+/** Comprovante de um pedido comprado no site. */
+export type PedidoComprovante = {
+  code: string;
+  buyerName: string;
+  totalCents: number;
+  statusLabel: string;
+  guests: { name: string }[];
+};
+
+export const linkPedido = (code: string) => `https://pvt-alquimista.vercel.app/pedido/${code}`;
+
+export function comprovanteTextoPedido(p: PedidoComprovante, link: string) {
+  const nomes = p.guests.map((g, i) => `${String(i + 1).padStart(2, "0")}. ${g.name}`).join("\n");
+  const reais = `R$ ${(p.totalCents / 100).toFixed(2).replace(".", ",")}`;
+  return [
+    `${EVENTO.nome} — COMPROVANTE DE INGRESSOS`,
+    `${EVENTO.quando}`,
+    `${EVENTO.onde}`,
+    "",
+    `Pedido: ${p.code}`,
+    `Comprador: ${p.buyerName}`,
+    `Total: ${reais}`,
+    `Situação: ${p.statusLabel}`,
+    "",
+    "NOMES:",
+    nomes,
+    "",
+    `Comprovante com QR Code: ${link}`,
+    "Apresente o QR Code na portaria para liberar a entrada.",
+  ].join("\n");
+}

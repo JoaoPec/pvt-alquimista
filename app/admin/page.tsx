@@ -1,7 +1,7 @@
 "use client";
 import { FormEvent, useState } from "react";
 import { apiFetch, authHeaders, apiUrl } from "@/lib/client-api";
-import { comprovanteNomes, comprovanteTexto, linkComprovante } from "@/lib/comprovante";
+import { comprovanteNomes, comprovanteTexto, comprovanteTextoPedido, linkComprovante, linkPedido } from "@/lib/comprovante";
 
 type Guest = { id: number; name: string; kind: string; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
 type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
@@ -287,6 +287,11 @@ export default function AdminPage() {
             <button className="btn" onClick={() => action(o.code, "approve")}>Aprovar</button>{" "}
             <button className="btn" onClick={() => action(o.code, "reject")}>Recusar</button>
           </div>}
+          <div className="ticket-actions">
+            <button className="btn btn-sm" type="button" onClick={() => copiar(comprovanteTextoPedido({ code: o.code, buyerName: o.buyerName, totalCents: o.totalCents, statusLabel: statusLabel[o.status] ?? o.status, guests: o.guests.filter((g) => !g.removedAt) }, linkPedido(o.code)), `Comprovante do pedido ${o.code} copiado.`)}>Copiar comprovante</button>
+            <button className="btn btn-sm" type="button" onClick={() => copiar(o.guests.filter((g) => !g.removedAt).map((g) => g.name).join("\n"), `Nomes do pedido ${o.code} copiados.`)}>Copiar só os nomes</button>
+            <a className="btn btn-sm" href={`/pedido/${o.code}`} target="_blank" rel="noreferrer">Abrir comprovante</a>
+          </div>
         </article>)}
       </>}
 

@@ -400,7 +400,18 @@ export function removeComplimentary(id: number, reason: string) {
 
 export function checkInComplimentary(id: number) {
   const db = getDatabase();
+  const info = db.prepare(`SELECT name, list_name FROM complimentary_guests WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
   const result = db.prepare(`UPDATE complimentary_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE id = ? AND removed_at IS NULL`).run(id);
+  if (result.changes > 0 && info) audit("complimentary.checked_in", { guestId: id, guestName: String(info.name), detail: String(info.list_name) });
+  return result.changes > 0;
+}
+
+/** Desfaz a entrada de uma cortesia. Registra no log — nada é apagado. */
+export function undoCheckInComplimentary(id: number) {
+  const db = getDatabase();
+  const info = db.prepare(`SELECT name, list_name FROM complimentary_guests WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+  const result = db.prepare(`UPDATE complimentary_guests SET checked_in_at = NULL WHERE id = ? AND checked_in_at IS NOT NULL`).run(id);
+  if (result.changes > 0 && info) audit("complimentary.checkin_undone", { guestId: id, guestName: String(info.name), detail: String(info.list_name) });
   return result.changes > 0;
 }
 
@@ -413,12 +424,29 @@ export function checkInList(listName: string) {
   const ativos = db.prepare(`SELECT id, name, checked_in_at FROM complimentary_guests WHERE list_name = ? AND removed_at IS NULL ORDER BY id`).all(listName) as Array<Record<string, unknown>>;
   if (ativos.length === 0) return null;
   db.prepare(`UPDATE complimentary_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE list_name = ? AND removed_at IS NULL`).run(listName);
+  audit("list.checked_in", { guestName: listName, detail: `${ativos.length} ingressos` });
   const depois = db.prepare(`SELECT name, checked_in_at FROM complimentary_guests WHERE list_name = ? AND removed_at IS NULL ORDER BY id`).all(listName) as Array<Record<string, unknown>>;
   return {
     lista: listName,
     total: depois.length,
     entrados: depois.filter((r) => r.checked_in_at).length,
     convidados: depois.map((r) => ({ nome: String(r.name), entrou: Boolean(r.checked_in_at) })),
+  };
+}
+
+/** Desfaz a entrada da lista inteira. */
+export function undoCheckInList(listName: string) {
+  const db = getDatabase();
+  const ativos = db.prepare(`SELECT id FROM complimentary_guests WHERE list_name = ? AND removed_at IS NULL AND checked_in_at IS NOT NULL`).all(listName) as Array<Record<string, unknown>>;
+  if (ativos.length === 0) return null;
+  db.prepare(`UPDATE complimentary_guests SET checked_in_at = NULL WHERE list_name = ? AND removed_at IS NULL`).run(listName);
+  audit("list.checkin_undone", { guestName: listName, detail: `${ativos.length} ingressos` });
+  const depois = db.prepare(`SELECT name, checked_in_at FROM complimentary_guests WHERE list_name = ? AND removed_at IS NULL ORDER BY id`).all(listName) as Array<Record<string, unknown>>;
+  return {
+    lista: listName,
+    total: depois.length,
+    entrados: 0,
+    convidados: depois.map((r) => ({ nome: String(r.name), entrou: false })),
   };
 }
 
@@ -435,7 +463,18 @@ export function approvedGuests() {
 
 export function checkInGuest(id: number) {
   const db = getDatabase();
+  const info = db.prepare(`SELECT g.guest_name, o.code FROM order_guests g JOIN orders o ON o.id=g.order_id WHERE g.id = ?`).get(id) as Record<string, unknown> | undefined;
   const result = db.prepare(`UPDATE order_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE id = ? AND removed_at IS NULL AND order_id IN (SELECT id FROM orders WHERE status='approved')`).run(id);
+  if (result.changes > 0 && info) audit("guest.checked_in", { orderCode: String(info.code), guestId: id, guestName: String(info.guest_name) });
+  return result.changes > 0;
+}
+
+/** Desfaz a entrada de um convidado de pedido. */
+export function undoCheckInGuest(id: number) {
+  const db = getDatabase();
+  const info = db.prepare(`SELECT g.guest_name, o.code FROM order_guests g JOIN orders o ON o.id=g.order_id WHERE g.id = ?`).get(id) as Record<string, unknown> | undefined;
+  const result = db.prepare(`UPDATE order_guests SET checked_in_at = NULL WHERE id = ? AND checked_in_at IS NOT NULL`).run(id);
+  if (result.changes > 0 && info) audit("guest.checkin_undone", { orderCode: String(info.code), guestId: id, guestName: String(info.guest_name) });
   return result.changes > 0;
 }
 
@@ -453,6 +492,20 @@ export function checkInOrder(code: string) {
     return { code: String(order.code), buyerName: String(order.buyer_name), status: String(order.status), checkedIn: 0, pending: guests.length, guests: guests.map((g) => ({ name: String(g.guest_name), kind: String(g.ticket_kind), checkedIn: Boolean(g.checked_in_at) })) };
   }
   db.prepare(`UPDATE order_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE order_id = ? AND removed_at IS NULL`).run(Number(order.id));
+  audit("order.checked_in", { orderCode: String(order.code), detail: `${guests.length} ingressos` });
   const after = db.prepare(`SELECT guest_name, ticket_kind, checked_in_at FROM order_guests WHERE order_id = ? AND removed_at IS NULL ORDER BY id`).all(Number(order.id)) as Array<Record<string, unknown>>;
   return { code: String(order.code), buyerName: String(order.buyer_name), status: "approved", checkedIn: after.length, pending: 0, guests: after.map((g) => ({ name: String(g.guest_name), kind: String(g.ticket_kind), checkedIn: Boolean(g.checked_in_at) })) };
+}
+
+/** Desfaz a entrada do pedido inteiro. */
+export function undoCheckInOrder(code: string) {
+  const db = getDatabase();
+  const normalized = code.trim().toUpperCase().replace(/^ALQUIMISTA:/, "");
+  const order = db.prepare(`SELECT id, code, buyer_name FROM orders WHERE code = ?`).get(normalized) as Record<string, unknown> | undefined;
+  if (!order) return null;
+  const marcados = db.prepare(`SELECT COUNT(*) AS n FROM order_guests WHERE order_id = ? AND removed_at IS NULL AND checked_in_at IS NOT NULL`).get(Number(order.id)) as Record<string, unknown>;
+  db.prepare(`UPDATE order_guests SET checked_in_at = NULL WHERE order_id = ? AND removed_at IS NULL`).run(Number(order.id));
+  audit("order.checkin_undone", { orderCode: String(order.code), detail: `${Number(marcados.n)} ingressos` });
+  const after = db.prepare(`SELECT guest_name, ticket_kind FROM order_guests WHERE order_id = ? AND removed_at IS NULL ORDER BY id`).all(Number(order.id)) as Array<Record<string, unknown>>;
+  return { code: String(order.code), buyerName: String(order.buyer_name), status: "approved", checkedIn: 0, pending: 0, guests: after.map((g) => ({ name: String(g.guest_name), kind: String(g.ticket_kind), checkedIn: false })) };
 }

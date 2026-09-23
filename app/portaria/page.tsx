@@ -31,12 +31,14 @@ export default function PortariaPage() {
   const [password, setPassword] = useState("");
   const [guests, setGuests] = useState<Guest[]>([]);
   const [complimentary, setComplimentary] = useState<Complimentary[]>([]);
+  const [listas, setListas] = useState<Array<{ nome: string; total: number; entrados: number; token: string }>>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(false);
   const [cameraBlocked, setCameraBlocked] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [pendente, setPendente] = useState<{ token: string; lista: string; total: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -48,6 +50,7 @@ export default function PortariaPage() {
     if (!r.ok) throw Error(d.error);
     setGuests(d.guests ?? []);
     setComplimentary(d.complimentary ?? []);
+    setListas(d.listas ?? []);
   };
   const login = async (e: FormEvent) => {
     e.preventDefault();
@@ -71,6 +74,18 @@ export default function PortariaPage() {
       await load(token);
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao confirmar."); }
   };
+  const desfazer = async (corpo: Record<string, unknown>, rotulo: string) => {
+    try {
+      const r = await apiFetch("/api/door", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ undo: true, ...corpo }) });
+      const d = await r.json();
+      if (!r.ok) { setError(d.error ?? "Não foi possível desfazer."); return; }
+      setError("");
+      setResult({ ok: true, message: `Entrada desfeita · ${rotulo}` });
+      await load(token);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao desfazer."); }
+  };
+  const desfazerGuest = (id: number) => desfazer({ guestId: id }, "participante liberado de novo");
+  const desfazerComplimentary = (id: number) => desfazer({ complimentaryId: id }, "cortesia liberada de novo");
 
   const stopCamera = useCallback(() => {
     stopRef.current = true;
@@ -82,17 +97,24 @@ export default function PortariaPage() {
   const checkInCode = useCallback(async (raw: string) => {
     const scan = parseScan(raw);
     if (!scan) return;
+    // Fecha a câmera assim que lê. Sem isto o modal ficava aberto por cima
+    // e o resultado nunca aparecia — foi o que aconteceu na leitura acidental.
+    stopCamera();
+    setScanning(false);
     setBusy(true);
     try {
       const corpo = scan.kind === "lista" ? { listToken: scan.token } : { code: scan.code };
-      const r = await apiFetch("/api/door", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify(corpo) });
-      const d = await r.json();
       if (scan.kind === "lista") {
-        if (!r.ok) setResult({ ok: false, message: d.error ?? "Não foi possível liberar a lista." });
-        else setResult({ ok: true, message: `Lista liberada · ${d.lista.entrados} de ${d.lista.total}`, code: d.lista.lista, guests: (d.lista.convidados as Array<{ nome: string; entrou: boolean }>).map((g) => ({ name: g.nome, kind: "cortesia", checkedIn: g.entrou })) });
-        await load(token);
+        // Nao libera direto: confere a lista e pede confirmacao. Uma leitura
+        // acidental nao pode marcar o grupo inteiro como entrado.
+        const info = await apiFetch(`/api/comprovante/${encodeURIComponent(scan.token)}`).then((r) => r.json()).catch(() => null);
+        if (!info?.comprovante) { setResult({ ok: false, message: "QR de lista inválido ou lista sem ingressos." }); return; }
+        setResult(null);
+        setPendente({ token: scan.token, lista: info.comprovante.lista, total: info.comprovante.total });
         return;
       }
+      const r = await apiFetch("/api/door", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify(corpo) });
+      const d = await r.json();
       if (r.status === 409 && d.order) {
         setResult({ ok: false, message: d.error, code: d.order.code, buyerName: d.order.buyerName, guests: d.order.guests });
       } else if (!r.ok) {
@@ -104,9 +126,24 @@ export default function PortariaPage() {
     } catch (x) {
       setResult({ ok: false, message: x instanceof Error ? x.message : "Falha ao confirmar." });
     } finally { setBusy(false); }
-  }, [token]);
+  }, [token, stopCamera]);
 
   const closeScanner = useCallback(() => { stopCamera(); setScanning(false); }, [stopCamera]);
+
+  /** Só depois de confirmar é que a lista inteira é liberada. */
+  const confirmarLista = async () => {
+    if (!pendente) return;
+    setBusy(true);
+    try {
+      const r = await apiFetch("/api/door", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ listToken: pendente.token }) });
+      const d = await r.json();
+      if (!r.ok) setResult({ ok: false, message: d.error ?? "Não foi possível liberar a lista." });
+      else setResult({ ok: true, message: `Lista liberada · ${d.lista.entrados} de ${d.lista.total}`, code: d.lista.lista, guests: (d.lista.convidados as Array<{ nome: string; entrou: boolean }>).map((g) => ({ name: g.nome, kind: "cortesia", checkedIn: g.entrou })) });
+      setPendente(null);
+      await load(token);
+    } catch (x) { setResult({ ok: false, message: x instanceof Error ? x.message : "Falha ao liberar." }); }
+    finally { setBusy(false); }
+  };
 
   const openScanner = useCallback(async () => {
     setError(""); setResult(null); setManualCode(""); setCameraBlocked(false);
@@ -154,11 +191,13 @@ export default function PortariaPage() {
   const visibleGuests = guests.filter((g) => match(g.name));
   const visibleComplimentary = complimentary.filter((c) => match(c.name));
   const lists = Array.from(new Set(visibleComplimentary.map((c) => c.listName))).sort((a, b) => a.localeCompare(b));
-  const card = (name: string, meta: string, done: boolean, onCheck: () => void, extra?: string) => (
+  const card = (name: string, meta: string, done: boolean, onCheck: () => void, onUndo: () => void, extra?: string) => (
     <article className="card" key={`${name}-${meta}`}>
       <b>{name}</b>
       <p>{meta}{extra ? ` · ${extra}` : ""}</p>
-      <button className="btn" disabled={done} onClick={onCheck}>{done ? "Entrada confirmada" : "Confirmar entrada"}</button>
+      {done
+        ? <div className="entrada-feita"><span className="picked">entrada confirmada</span><button className="btn btn-sm" type="button" onClick={onUndo}>Desfazer</button></div>
+        : <button className="btn" type="button" onClick={onCheck}>Confirmar entrada</button>}
     </article>
   );
 
@@ -184,6 +223,15 @@ export default function PortariaPage() {
 
     <section className="admin-body">
       {error && <p className="error">{error}</p>}
+      {pendente && <article className="card scan-result aviso">
+        <b>⚠ Liberar a lista inteira?</b>
+        <p><strong>{pendente.lista}</strong> · {pendente.total} {pendente.total === 1 ? "ingresso" : "ingressos"}</p>
+        <p>Isso marca todos como <strong>entrados</strong> de uma vez.</p>
+        <div className="ticket-actions">
+          <button className="btn" type="button" disabled={busy} onClick={confirmarLista}>{busy ? "Liberando…" : `Sim, liberar os ${pendente.total}`}</button>
+          <button className="btn btn-sm" type="button" disabled={busy} onClick={() => setPendente(null)}>Cancelar</button>
+        </div>
+      </article>}
       {result && <article className={result.ok ? "card scan-result ok" : "card scan-result bad"}>
         <b>{result.ok ? "✓ " : "✕ "}{result.message}{result.code ? ` · ${result.code}` : ""}</b>
         {result.buyerName && <p>{result.buyerName}</p>}
@@ -198,16 +246,25 @@ export default function PortariaPage() {
         if (group.length === 0) return null;
         return <section key={kind}>
           <h2>{kindLabel[kind] ?? kind} · {group.length}</h2>
-          {group.map((g) => card(g.name, kindLabel[g.kind] ?? g.kind, !!g.checkedInAt, () => checkGuest(g.id), g.code))}
+          {group.map((g) => card(g.name, kindLabel[g.kind] ?? g.kind, !!g.checkedInAt, () => checkGuest(g.id), () => desfazerGuest(g.id), g.code))}
         </section>;
       })}
 
       {lists.length > 0 && <section>
         <h2>Cortesias / Listas · {visibleComplimentary.length}</h2>
-        {lists.map((list) => <div key={list}>
-          <h3>{list}</h3>
-          {visibleComplimentary.filter((c) => c.listName === list).map((c) => card(c.name, list, !!c.checkedInAt, () => checkComplimentary(c.id), c.note ?? undefined))}
-        </div>)}
+        {lists.map((list) => {
+          const info = listas.find((l) => l.nome === list);
+          const daLista = visibleComplimentary.filter((c) => c.listName === list);
+          const entrados = daLista.filter((c) => c.checkedInAt).length;
+          return <div key={list}>
+            <h3>{list}</h3>
+            {info && <div className="lista-acoes">
+              <span className="fineprint">{entrados} de {daLista.length} entraram</span>
+              {entrados > 0 && <button className="btn btn-sm" type="button" onClick={() => desfazer({ listToken: info.token }, "lista liberada de novo")}>Desfazer lista inteira</button>}
+            </div>}
+            {daLista.map((c) => card(c.name, list, !!c.checkedInAt, () => checkComplimentary(c.id), () => desfazerComplimentary(c.id), c.note ?? undefined))}
+          </div>;
+        })}
       </section>}
 
       {visibleGuests.length === 0 && visibleComplimentary.length === 0 && <p className="fineprint">Nenhum participante encontrado.</p>}
