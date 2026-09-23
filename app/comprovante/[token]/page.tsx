@@ -51,7 +51,8 @@ export default function ComprovantePage({ params }: { params: Promise<{ token: s
         <ol>{dados.convidados.map((g, i) => <li key={`${g.nome}-${i}`}>{g.nome}{g.entrou ? <em> · entrou</em> : null}</li>)}</ol>
       </div>
 
-      <p className="fineprint">Para guardar em PDF, use Imprimir (Ctrl+P) e escolha "Salvar como PDF".</p>
+      <button className="comprovante-salvar" type="button" onClick={() => window.print()}>Salvar em PDF</button>
+      <p className="fineprint">Abre a janela de impressão — escolha "Salvar como PDF".</p>
     </section>
   </main>;
 }
