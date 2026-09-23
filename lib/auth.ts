@@ -41,3 +41,27 @@ export function getBearerToken(request: Request) {
   const header = request.headers.get("authorization");
   return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
+
+/**
+ * Link assinado de um comprovante de lista (ex: os 10 ingressos do Darlan).
+ * Não guarda nada no banco: o nome da lista vai dentro do próprio token, e a
+ * assinatura garante que ninguém troque o nome para espiar outra lista.
+ */
+export function createListToken(listName: string) {
+  const payload = Buffer.from(JSON.stringify({ kind: "list", list: listName })).toString("base64url");
+  return `${payload}.${sign(payload)}`;
+}
+
+/** Devolve o nome da lista se a assinatura conferir; senão, null. */
+export function readListToken(token: string | null): string | null {
+  if (!token || !token.includes(".")) return null;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+  const expected = Buffer.from(sign(payload));
+  const given = Buffer.from(signature);
+  if (given.byteLength !== expected.byteLength || !timingSafeEqual(given, expected)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { kind?: string; list?: string };
+    return parsed.kind === "list" && typeof parsed.list === "string" && parsed.list.trim() ? parsed.list : null;
+  } catch { return null; }
+}

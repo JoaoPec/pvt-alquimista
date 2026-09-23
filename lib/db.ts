@@ -404,6 +404,24 @@ export function checkInComplimentary(id: number) {
   return result.changes > 0;
 }
 
+/**
+ * Libera a lista inteira de uma vez, pelo QR do comprovante.
+ * Devolve o resumo da lista, ou null se a lista não existir mais.
+ */
+export function checkInList(listName: string) {
+  const db = getDatabase();
+  const ativos = db.prepare(`SELECT id, name, checked_in_at FROM complimentary_guests WHERE list_name = ? AND removed_at IS NULL ORDER BY id`).all(listName) as Array<Record<string, unknown>>;
+  if (ativos.length === 0) return null;
+  db.prepare(`UPDATE complimentary_guests SET checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP) WHERE list_name = ? AND removed_at IS NULL`).run(listName);
+  const depois = db.prepare(`SELECT name, checked_in_at FROM complimentary_guests WHERE list_name = ? AND removed_at IS NULL ORDER BY id`).all(listName) as Array<Record<string, unknown>>;
+  return {
+    lista: listName,
+    total: depois.length,
+    entrados: depois.filter((r) => r.checked_in_at).length,
+    convidados: depois.map((r) => ({ nome: String(r.name), entrou: Boolean(r.checked_in_at) })),
+  };
+}
+
 export function receiptForOrder(code: string) {
   const db = getDatabase();
   return db.prepare(`SELECT r.filename, r.content_type, r.file_data FROM payment_receipts r JOIN orders o ON o.id=r.order_id WHERE o.code = ?`).get(code) as { filename: string; content_type: string; file_data: Uint8Array } | undefined;

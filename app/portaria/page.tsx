@@ -15,12 +15,15 @@ const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").t
 const kindLabel: Record<string, string> = { social: "Social", normal: "Normal", combo5: "Combo 5" };
 const kindOrder = ["social", "normal", "combo5"];
 
-/** Aceita "ALQUIMISTA:ALQ-XXXX", a URL da página do pedido ou só o código. */
-function extractCode(raw: string) {
+/** Aceita o QR do pedido ("ALQUIMISTA:ALQ-XXXX"), o QR da lista ("ALQUIMISTA-LISTA:..."), a URL do pedido ou o código solto. */
+function parseScan(raw: string): { kind: "lista"; token: string } | { kind: "pedido"; code: string } | null {
   const value = raw.trim();
+  const lista = value.match(/ALQUIMISTA-LISTA:(\S+)/i) ?? value.match(/\/comprovante\/(\S+)/i);
+  if (lista) return { kind: "lista", token: lista[1] };
   const url = value.match(/\/pedido\/([A-Za-z0-9-]+)/);
-  if (url) return url[1].toUpperCase();
-  return value.replace(/^ALQUIMISTA:/i, "").trim().toUpperCase();
+  if (url) return { kind: "pedido", code: url[1].toUpperCase() };
+  const code = value.replace(/^ALQUIMISTA:/i, "").trim().toUpperCase();
+  return code ? { kind: "pedido", code } : null;
 }
 
 export default function PortariaPage() {
@@ -77,12 +80,19 @@ export default function PortariaPage() {
   }, []);
 
   const checkInCode = useCallback(async (raw: string) => {
-    const code = extractCode(raw);
-    if (!code) return;
+    const scan = parseScan(raw);
+    if (!scan) return;
     setBusy(true);
     try {
-      const r = await apiFetch("/api/door", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ code }) });
+      const corpo = scan.kind === "lista" ? { listToken: scan.token } : { code: scan.code };
+      const r = await apiFetch("/api/door", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify(corpo) });
       const d = await r.json();
+      if (scan.kind === "lista") {
+        if (!r.ok) setResult({ ok: false, message: d.error ?? "Não foi possível liberar a lista." });
+        else setResult({ ok: true, message: `Lista liberada · ${d.lista.entrados} de ${d.lista.total}`, code: d.lista.lista, guests: (d.lista.convidados as Array<{ nome: string; entrou: boolean }>).map((g) => ({ name: g.nome, kind: "cortesia", checkedIn: g.entrou })) });
+        await load(token);
+        return;
+      }
       if (r.status === 409 && d.order) {
         setResult({ ok: false, message: d.error, code: d.order.code, buyerName: d.order.buyerName, guests: d.order.guests });
       } else if (!r.ok) {

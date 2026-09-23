@@ -1,6 +1,6 @@
 import { apiOptions, apiResponse } from "@/lib/api";
-import { getBearerToken, isAdminToken } from "@/lib/auth";
-import { approvedGuests, checkInComplimentary, checkInGuest, checkInOrder, listComplimentary } from "@/lib/db";
+import { getBearerToken, isAdminToken, readListToken } from "@/lib/auth";
+import { approvedGuests, checkInComplimentary, checkInGuest, checkInList, checkInOrder, listComplimentary } from "@/lib/db";
 export const runtime = "nodejs";
 export function OPTIONS(request: Request) { return apiOptions(request); }
 export function GET(request: Request) {
@@ -12,7 +12,14 @@ export function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
-    const body = await request.json() as { guestId?: number; complimentaryId?: number; code?: string };
+    const body = await request.json() as { guestId?: number; complimentaryId?: number; code?: string; listToken?: string };
+    if (typeof body.listToken === "string" && body.listToken.trim()) {
+      const lista = readListToken(body.listToken.trim());
+      if (!lista) return apiResponse(request, { error: "QR de lista inválido." }, { status: 404 });
+      const resumo = checkInList(lista);
+      if (!resumo) return apiResponse(request, { error: "Esta lista não tem mais ingressos." }, { status: 404 });
+      return apiResponse(request, { checkedIn: true, lista: resumo });
+    }
     if (typeof body.code === "string" && body.code.trim()) {
       const result = checkInOrder(body.code);
       if (!result) return apiResponse(request, { error: "Pedido não encontrado." }, { status: 404 });

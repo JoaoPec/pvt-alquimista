@@ -1,6 +1,7 @@
 "use client";
 import { FormEvent, useState } from "react";
 import { apiFetch, authHeaders, apiUrl } from "@/lib/client-api";
+import { comprovanteNomes, comprovanteTexto, linkComprovante } from "@/lib/comprovante";
 
 type Guest = { id: number; name: string; kind: string; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
 type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
@@ -9,6 +10,7 @@ type Receipt = { filename: string; contentType: string; dataBase64: string };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; sellerId: number | null; sellerName: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
 type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; removedApproved: number; checkedIn: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
 type Seller = { id: number; name: string; slug: string | null; quota: number; active: boolean; sold: number; given: number; used: number; remaining: number };
+type Lista = { nome: string; dj: string | null; total: number; entrados: number; convidados: { nome: string; entrou: boolean }[]; token: string };
 type Target = { kind: "guest" | "complimentary" | "seller"; id: number; name: string };
 type Tab = "visao" | "djs" | "cortesias" | "pedidos" | "log";
 
@@ -31,6 +33,8 @@ export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [complimentary, setComplimentary] = useState<Complimentary[]>([]);
   const [sellers, setSellers] = useState<Seller[]>([]);
+  const [listas, setListas] = useState<Lista[]>([]);
+  const [copiado, setCopiado] = useState("");
   const [receipts, setReceipts] = useState<Record<string, Receipt>>({});
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<Target | null>(null);
@@ -55,7 +59,7 @@ export default function AdminPage() {
     if (a.ok) setAudit(ad.audit ?? []);
     const c = await apiFetch("/api/admin/complimentary", { headers: authHeaders(t) });
     const cd = await c.json();
-    if (c.ok) { setComplimentary(cd.complimentary ?? []); setSellers(cd.sellers ?? []); }
+    if (c.ok) { setComplimentary(cd.complimentary ?? []); setSellers(cd.sellers ?? []); setListas(cd.listas ?? []); }
   };
 
   const login = async (event: FormEvent) => {
@@ -109,6 +113,12 @@ export default function AdminPage() {
   };
 
   const askRemove = (target: Target) => { setRemoving(target); setReason(""); setConfirmText(""); };
+
+  const copiar = async (texto: string, rotulo: string) => {
+    try { await navigator.clipboard.writeText(texto); setCopiado(rotulo); }
+    catch { setCopiado("Não foi possível copiar automaticamente. Selecione o texto na tela e copie."); }
+    setTimeout(() => setCopiado(""), 3000);
+  };
 
   const doRemove = async () => {
     if (!removing || confirmText !== "REMOVER") return;
@@ -216,6 +226,25 @@ export default function AdminPage() {
       </>}
 
       {tab === "cortesias" && <>
+        {listas.length > 0 && <section className="comprovantes">
+          <h2>Comprovantes</h2>
+          <p className="fineprint">Copie o texto pronto e cole na sua mensagem ou e-mail. O link abre a página com o QR que a portaria lê.</p>
+          {copiado && <p className="success">{copiado}</p>}
+          {listas.map((l) => {
+            const link = linkComprovante(l.token);
+            const dados = { lista: l.nome, dj: l.dj, total: l.total, entrados: l.entrados, convidados: l.convidados };
+            return <article className="card" key={l.nome}>
+              <b>{l.nome}</b>
+              <p>{l.total} {l.total === 1 ? "ingresso" : "ingressos"}{l.dj ? ` · ${l.dj}` : ""}{l.entrados > 0 ? ` · ${l.entrados} já ${l.entrados === 1 ? "entrou" : "entraram"}` : ""}</p>
+              <div className="ticket-actions">
+                <button className="btn btn-sm" type="button" onClick={() => copiar(comprovanteTexto(dados, link), `Comprovante de "${l.nome}" copiado. Cole na mensagem ou e-mail.`)}>Copiar comprovante</button>
+                <button className="btn btn-sm" type="button" onClick={() => copiar(comprovanteNomes(dados), `Nomes de "${l.nome}" copiados.`)}>Copiar só os nomes</button>
+                <button className="btn btn-sm" type="button" onClick={() => copiar(link, "Link do comprovante copiado.")}>Copiar link</button>
+                <a className="btn btn-sm" href={`/comprovante/${l.token}`} target="_blank" rel="noreferrer">Abrir comprovante</a>
+              </div>
+            </article>;
+          })}
+        </section>}
         <form className="card" onSubmit={addComplimentary}>
           <label>Nome<input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome completo" required /></label>
           <label>Lista<input value={newList} onChange={(e) => setNewList(e.target.value)} placeholder="Ex: DJ, Produção, Imprensa" /></label>

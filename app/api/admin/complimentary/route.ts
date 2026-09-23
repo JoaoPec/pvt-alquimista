@@ -1,15 +1,32 @@
 import { apiOptions, apiResponse } from "@/lib/api";
-import { getBearerToken, isAdminToken } from "@/lib/auth";
+import { createListToken, getBearerToken, isAdminToken } from "@/lib/auth";
 import { addComplimentary, listComplimentary, listSellers, removeComplimentary } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 export function OPTIONS(request: Request) { return apiOptions(request); }
 
+/** Agrupa as cortesias ativas por lista e já assina o link do comprovante de cada uma. */
+function listasComToken() {
+  const ativas = listComplimentary(false);
+  const nomes = Array.from(new Set(ativas.map((c) => c.listName)));
+  return nomes.sort((a, b) => a.localeCompare(b)).map((nome) => {
+    const doGrupo = ativas.filter((c) => c.listName === nome);
+    return {
+      nome,
+      dj: doGrupo.find((c) => c.sellerName)?.sellerName ?? null,
+      total: doGrupo.length,
+      entrados: doGrupo.filter((c) => c.checkedInAt).length,
+      convidados: doGrupo.map((c) => ({ nome: c.name, entrou: Boolean(c.checkedInAt) })),
+      token: createListToken(nome),
+    };
+  });
+}
+
 export function GET(request: Request) {
   try {
     if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
-    return apiResponse(request, { complimentary: listComplimentary(true), sellers: listSellers(false) });
+    return apiResponse(request, { complimentary: listComplimentary(true), sellers: listSellers(false), listas: listasComToken() });
   } catch { return apiResponse(request, { error: "Não foi possível carregar as cortesias." }, { status: 503 }); }
 }
 
