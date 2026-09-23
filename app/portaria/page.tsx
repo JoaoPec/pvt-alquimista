@@ -1,6 +1,7 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, authHeaders } from "@/lib/client-api";
+import { lerToken, limparToken, salvarToken } from "@/lib/session";
 
 type Guest = { id: number; name: string; kind: string; code: string; checkedInAt: string | null };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null };
@@ -52,12 +53,22 @@ export default function PortariaPage() {
     setComplimentary(d.complimentary ?? []);
     setListas(d.listas ?? []);
   };
+  // Retoma a sessão guardada: fechar a aba não derruba mais o login.
+  useEffect(() => {
+    const salvo = lerToken();
+    if (!salvo) return;
+    load(salvo).then(() => setToken(salvo)).catch(() => limparToken());
+  }, []);
+
+  const sair = () => { limparToken(); setToken(""); setPassword(""); };
+
   const login = async (e: FormEvent) => {
     e.preventDefault();
     try {
       const r = await apiFetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
       const d = await r.json();
       if (!r.ok) throw Error(d.error);
+      salvarToken(d.token);
       setToken(d.token);
       await load(d.token);
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao entrar."); }
@@ -214,7 +225,9 @@ export default function PortariaPage() {
     <header className="admin-hero">
       <p className="kicker">LISTA APROVADA · PORTARIA</p>
       <h1>Portaria</h1>
-      <p className="admin-hero-sub">{guests.filter((g) => !g.checkedInAt).length} ainda não entraram · {guests.filter((g) => g.checkedInAt).length} confirmados · {complimentary.length} cortesias</p>
+      <p className="admin-hero-sub">{guests.filter((g) => !g.checkedInAt).length} ainda não entraram · {guests.filter((g) => g.checkedInAt).length} confirmados · {complimentary.length} cortesias
+        <button className="sair" type="button" onClick={sair}>Sair</button>
+      </p>
       <div className="scan-actions">
         <button className="btn scan-btn" type="button" onClick={openScanner}>Ler QR Code</button>
         <button className="btn btn-sm" type="button" onClick={() => void load(token)}>Atualizar lista</button>

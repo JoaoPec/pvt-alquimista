@@ -1,7 +1,8 @@
 "use client";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { apiFetch, authHeaders, apiUrl } from "@/lib/client-api";
 import { comprovanteNomes, comprovanteTexto, comprovanteTextoPedido, linkComprovante, linkPedido } from "@/lib/comprovante";
+import { lerToken, limparToken, salvarToken } from "@/lib/session";
 
 type Guest = { id: number; name: string; kind: string; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
 type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
@@ -62,12 +63,22 @@ export default function AdminPage() {
     if (c.ok) { setComplimentary(cd.complimentary ?? []); setSellers(cd.sellers ?? []); setListas(cd.listas ?? []); }
   };
 
+  // Retoma a sessão guardada: fechar a aba não derruba mais o login.
+  useEffect(() => {
+    const salvo = lerToken();
+    if (!salvo) return;
+    load(salvo).then(() => setToken(salvo)).catch(() => limparToken());
+  }, []);
+
+  const sair = () => { limparToken(); setToken(""); setPassword(""); };
+
   const login = async (event: FormEvent) => {
     event.preventDefault();
     try {
       const r = await apiFetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
       const d = await r.json();
       if (!r.ok) throw Error(d.error);
+      salvarToken(d.token);
       setToken(d.token);
       await load(d.token);
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao entrar."); }
@@ -175,6 +186,7 @@ export default function AdminPage() {
       <h1>Painel da produção</h1>
       <p className="admin-hero-sub">
         {plural(byStatus("approved")?.orders ?? 0, "aprovado", "aprovados")} · {plural(pending, "aguardando", "aguardando")} · {br(byStatus("approved")?.cents ?? 0)} confirmados
+        <button className="sair" type="button" onClick={sair}>Sair</button>
       </p>
       <nav className="admin-tabs" aria-label="Seções do painel">
         {tabs.map((item) => (
