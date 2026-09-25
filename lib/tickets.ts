@@ -10,8 +10,16 @@
 export type TicketKind = "social" | "normal" | "combo2" | "combo3" | "combo5";
 export type Counts = Record<TicketKind, number>;
 
+/**
+ * Tipos que o cliente pode comprar agora.
+ *
+ * combo2 e combo3 continuam DEFINIDOS aqui (tipo, preço, lugares, rótulos),
+ * mas estão FORA da lista ativa — o código fica pronto e ninguém consegue
+ * comprar enquanto estiverem desligados. Para ligar de novo, basta
+ * adicioná-los a TICKET_KINDS (e o card na landing em app/page.tsx).
+ */
 /** Todos os tipos, na ordem em que aparecem no site. */
-export const TICKET_KINDS: TicketKind[] = ["social", "normal", "combo2", "combo3", "combo5"];
+export const TICKET_KINDS: TicketKind[] = ["social", "normal", "combo5"];
 
 /** Quantas pessoas cada unidade ocupa. */
 export const TICKET_STEP: Record<TicketKind, number> = { social: 1, normal: 1, combo2: 2, combo3: 3, combo5: 5 };
