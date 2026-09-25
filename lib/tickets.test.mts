@@ -1,8 +1,5 @@
 /**
  * Testes das regras de ingressos.
- *
- * combo2 e combo3 estão COMENTADOS (desligados da venda). Os blocos abaixo
- * continuam aqui para religar fácil: ao reativar, é só descomentar.
  */
 import {
   canAdd, changeTicket, clampToLimit, emptyCounts, guestsOf, kindsOf, precoDe, totalOf,
@@ -22,16 +19,15 @@ const add = (counts: Counts, kind: TicketKind, times: number, limit: number) => 
 };
 const so = (kind: TicketKind, n: number): Counts => ({ ...emptyCounts(), [kind]: n });
 
-console.log("--- catalogo ativo (combos 2 e 3 desligados) ---");
-check("3 tipos a venda", TICKET_KINDS, ["social", "normal", "combo5"]);
+console.log("--- catalogo de ingressos ---");
+check("5 tipos a venda", TICKET_KINDS, ["social", "normal", "combo2", "combo3", "combo5"]);
 check("preco social 20", TICKET_PRICE.social, 20);
 check("preco normal 25", TICKET_PRICE.normal, 25);
-check("preco combo5 80", TICKET_PRICE.combo5, 80);
-
-/*
-console.log("\n--- combos 2 e 3 (DESLIGADOS — descomentar ao religar) ---");
 check("preco combo2 35", TICKET_PRICE.combo2, 35);
 check("preco combo3 50", TICKET_PRICE.combo3, 50);
+check("preco combo5 80", TICKET_PRICE.combo5, 80);
+
+console.log("\n--- combos 2 e 3 ---");
 check("combo2 ocupa 2 lugares", TICKET_STEP.combo2, 2);
 check("combo3 ocupa 3 lugares", TICKET_STEP.combo3, 3);
 check("combo2 com 1 restante NAO cabe", canAdd(emptyCounts(), "combo2", 1), false);
@@ -45,13 +41,6 @@ check("1 combo3 = R$ 50", totalOf(so("combo3", 1)), 50);
 check("combo2 com 1 nome: erro", validarIngressos([{ kind: "combo2", guestName: "A" }]), "Cada Combo 2 precisa ter 2 participantes.");
 check("combo2 com 2 nomes: ok", validarIngressos([{ kind: "combo2", guestName: "A" }, { kind: "combo2", guestName: "B" }]), null);
 check("combo3 com 3 nomes: ok", validarIngressos([{ kind: "combo3", guestName: "A" }, { kind: "combo3", guestName: "B" }, { kind: "combo3", guestName: "C" }]), null);
-*/
-
-console.log("\n--- tipos desligados sao rejeitados ---");
-check("combo2 recusado na validacao", validarIngressos([{ kind: "combo2", guestName: "A" }, { kind: "combo2", guestName: "B" }]), "Preencha o nome de cada participante.");
-check("combo3 recusado na validacao", validarIngressos([{ kind: "combo3", guestName: "A" }, { kind: "combo3", guestName: "B" }, { kind: "combo3", guestName: "C" }]), "Preencha o nome de cada participante.");
-check("combo2 nao soma preco", totalOf(so("combo2", 1)), 0);
-check("combo2 nao soma pessoas", guestsOf(so("combo2", 1)), 0);
 
 console.log("\n--- tipos ativos continuam certos ---");
 check("1 social = R$ 20", totalOf(so("social", 1)), 20);
