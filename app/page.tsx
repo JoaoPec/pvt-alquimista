@@ -32,15 +32,27 @@ export default function Home() {
             <p className="ticket-copy">Ingresso individual para viver a noite de lua cheia.</p>
             <ul><li>Acesso à PVT Alquimista</li><li>Sem alimento obrigatório</li></ul><Checkout />
           </article>
+          <article className="ticket-card cream combo-card">
+            <span className="ticket-badge">PARA DUPLA · R$ 17,50 POR PESSOA</span>
+            <p className="ticket-index">03 · COMBO 2</p><h3>R$<br />35</h3>
+            <p className="ticket-copy">Dois ingressos para quem não vai sozinho.</p>
+            <ul><li>2 ingressos no mesmo combo</li><li>R$ 2,50 mais barato que 2 normais</li></ul><Checkout />
+          </article>
+          <article className="ticket-card night combo-card">
+            <span className="ticket-badge">PARA TURMA · R$ 16,67 POR PESSOA</span>
+            <p className="ticket-index">04 · COMBO 3</p><h3>R$<br />50</h3>
+            <p className="ticket-copy">Três ingressos para chegar com a galera.</p>
+            <ul><li>3 ingressos no mesmo combo</li><li>Economia para o grupo</li></ul><Checkout />
+          </article>
           <article className="ticket-card night combo-card">
             <span className="ticket-badge">MELHOR VALOR · R$ 16 POR PESSOA</span>
-            <p className="ticket-index">03 · COMBO 5</p><h3>R$<br />80</h3>
+            <p className="ticket-index">05 · COMBO 5</p><h3>R$<br />80</h3>
             <p className="ticket-copy">Combo com 5 ingressos para chegar junto com a sua tribo.</p>
             <ul><li>5 ingressos no mesmo combo</li><li>Economia para o grupo</li></ul><Checkout />
           </article>
           {COOLER_ENABLED && <article className="ticket-card cream cooler-card">
             <span className="ticket-badge">EXTRA OPCIONAL</span>
-            <p className="ticket-index">04 · ADICIONAL</p><h3>COOLER<br /><small>+ R$ {COOLER_PRICE}</small></h3>
+            <p className="ticket-index">06 · ADICIONAL</p><h3>COOLER<br /><small>+ R$ {COOLER_PRICE}</small></h3>
             <p className="ticket-copy">Leve seu cooler com bebida e gelo. Vale para qualquer compra, sem quantidade mínima.</p>
             <ul><li>Junto com qualquer ingresso</li><li>Sem combinação mínima</li></ul><Checkout />
           </article>}

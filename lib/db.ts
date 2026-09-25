@@ -1,8 +1,9 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { migrarTiposDeIngresso } from "./migrations";
 
-export type TicketKind = "social" | "normal" | "combo5";
+export type TicketKind = "social" | "normal" | "combo2" | "combo3" | "combo5";
 export type OrderStatus = "awaiting_receipt" | "pending_approval" | "approved" | "rejected";
 export type OrderProof = "receipt" | "declared" | "manual";
 
@@ -75,7 +76,7 @@ function getDatabase() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
         guest_name TEXT NOT NULL,
-        ticket_kind TEXT NOT NULL CHECK(ticket_kind IN ('social','normal','combo5')),
+        ticket_kind TEXT NOT NULL CHECK(ticket_kind IN ('social','normal','combo2','combo3','combo5')),
         checked_in_at TEXT,
         removed_at TEXT,
         removed_reason TEXT
@@ -129,7 +130,11 @@ function getDatabase() {
     addColumn("sellers", "quota", "INTEGER NOT NULL DEFAULT 10");
     addColumn("complimentary_guests", "seller_id", "INTEGER REFERENCES sellers(id) ON DELETE SET NULL");
 
-    // 3) Índices que dependem das colunas acima.
+    // 3) Bancos antigos: libera os combos novos na tabela de convidados.
+    migrarTiposDeIngresso(database);
+
+    // 4) Índices que dependem das colunas acima.
+    database.exec(`CREATE INDEX IF NOT EXISTS order_guests_order_idx ON order_guests(order_id);`);
     database.exec(`CREATE INDEX IF NOT EXISTS orders_seller_idx ON orders(seller_id);`);
     database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS sellers_slug_unique ON sellers(slug) WHERE slug IS NOT NULL;`);
     database.exec(`CREATE INDEX IF NOT EXISTS complimentary_seller_idx ON complimentary_guests(seller_id);`);

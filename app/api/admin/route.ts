@@ -2,11 +2,9 @@ import { apiOptions, apiResponse } from "@/lib/api";
 import { createAdminToken, getBearerToken, isAdminToken, verifyAdminPassword } from "@/lib/auth";
 import { COOLER_PRICE } from "@/lib/features";
 import { createManualOrder, listOrders, orderStats, setOrderStatus, type TicketKind } from "@/lib/db";
+import { precoDe, validarIngressos } from "@/lib/tickets";
 
 export const runtime = "nodejs";
-
-const precos: Record<TicketKind, number> = { social: 2000, normal: 2500, combo5: 8000 };
-const kinds: TicketKind[] = ["social", "normal", "combo5"];
 
 type Corpo = {
   password?: string;
@@ -27,18 +25,19 @@ function prepararManual(m: NonNullable<Corpo["manual"]>) {
   const buyerName = m.buyerName?.trim();
   const email = (m.email?.trim() || "sem-email@pvt-alquimista.local").toLowerCase();
   const whatsapp = (m.whatsapp?.replace(/\D/g, "") || "0000000000");
-  const tickets = (m.tickets ?? []).map((t) => ({ kind: t.kind as TicketKind, guestName: t.guestName?.trim() ?? "" }));
+  const tickets = (m.tickets ?? []).map((t) => ({ kind: t.kind, guestName: t.guestName?.trim() ?? "" }));
   if (!buyerName) throw new Error("Informe o nome do comprador.");
-  if (tickets.length === 0) throw new Error("Adicione pelo menos 1 ingresso.");
-  if (tickets.some((t) => !t.guestName || !kinds.includes(t.kind))) throw new Error("Preencha o nome de cada participante.");
-  const combos = tickets.filter((t) => t.kind === "combo5").length;
-  if (combos % 5 !== 0) throw new Error("Cada Combo 5 precisa ter cinco participantes.");
+  const problema = validarIngressos(tickets);
+  if (problema) throw new Error(problema);
   const cooler = Boolean(m.cooler);
-  const totalCents = tickets.filter((t) => t.kind === "social").length * precos.social
-    + tickets.filter((t) => t.kind === "normal").length * precos.normal
-    + (combos / 5) * precos.combo5
-    + (cooler ? COOLER_PRICE * 100 : 0);
-  return { buyerName, email, whatsapp, tickets, cooler, totalCents, sellerId: m.sellerId ?? null, note: m.note ?? "" };
+  return {
+    buyerName, email, whatsapp,
+    tickets: tickets as Array<{ kind: TicketKind; guestName: string }>,
+    cooler,
+    totalCents: precoDe(tickets, cooler, COOLER_PRICE),
+    sellerId: m.sellerId ?? null,
+    note: m.note ?? "",
+  };
 }
 
 export async function POST(request: Request) {

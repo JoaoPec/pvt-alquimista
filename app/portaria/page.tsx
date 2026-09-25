@@ -2,6 +2,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, authHeaders } from "@/lib/client-api";
 import { lerToken, limparToken, salvarToken } from "@/lib/session";
+import { TICKET_KINDS, TICKET_LABEL, TICKET_PRICE, TICKET_STEP } from "@/lib/tickets";
 
 type Guest = { id: number; name: string; kind: string; code: string; checkedInAt: string | null };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null };
@@ -13,8 +14,8 @@ type BarcodeDetectorLike = { detect: (source: HTMLVideoElement) => Promise<Detec
 type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
 
 const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-const kindLabel: Record<string, string> = { social: "Social", normal: "Normal", combo5: "Combo 5" };
-const kindOrder = ["social", "normal", "combo5"];
+const kindLabel: Record<string, string> = TICKET_LABEL;
+const kindOrder = TICKET_KINDS;
 
 /** Aceita o QR do pedido ("ALQUIMISTA:ALQ-XXXX"), o QR da lista ("ALQUIMISTA-LISTA:..."), a URL do pedido ou o código solto. */
 function parseScan(raw: string): { kind: "lista"; token: string } | { kind: "pedido"; code: string } | null {

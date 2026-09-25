@@ -4,6 +4,7 @@ import { apiFetch, authHeaders, apiUrl } from "@/lib/client-api";
 import { comprovanteNomes, comprovanteTexto, comprovanteTextoPedido, linkComprovante, linkPedido } from "@/lib/comprovante";
 import { lerToken, limparToken, salvarToken } from "@/lib/session";
 import { COOLER_ENABLED, COOLER_PRICE } from "@/lib/features";
+import { TICKET_KINDS, TICKET_LABEL, TICKET_PRICE, TICKET_STEP, precoDe } from "@/lib/tickets";
 
 type Guest = { id: number; name: string; kind: string; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
 type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; proofType: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
@@ -188,10 +189,7 @@ Só confirme se você já conferiu o pagamento por fora.`
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao reativar."); }
   };
 
-  const mTotal = mTickets.filter((t) => t.kind === "social").length * 20
-    + mTickets.filter((t) => t.kind === "normal").length * 25
-    + (mTickets.filter((t) => t.kind === "combo5").length / 5) * 80
-    + (mCooler ? COOLER_PRICE : 0);
+  const mTotal = precoDe(mTickets, mCooler, COOLER_PRICE);
 
   const approvedByKind = (kind: string) => stats?.guests.find((g) => g.status === "approved" && g.kind === kind)?.count ?? 0;
   const byStatus = (status: string) => stats?.byStatus.find((s) => s.status === status);
@@ -240,7 +238,7 @@ Só confirme se você já conferiu o pagamento por fora.`
 
       {tab === "visao" && stats && <section className="stat-grid">
         <article className="card stat-card featured"><span>RECEITA APROVADA</span><b>{br(byStatus("approved")?.cents ?? 0)}</b><p>{plural(byStatus("approved")?.orders ?? 0, "pedido aprovado", "pedidos aprovados")}{stats.removedApproved > 0 ? ` · ${plural(stats.removedApproved, "convidado removido", "convidados removidos")} depois` : ""}</p></article>
-        <article className="card stat-card"><span>INGRESSOS APROVADOS</span><b>{approvedByKind("social") + approvedByKind("normal") + approvedByKind("combo5")}</b><p>Social {approvedByKind("social")} · Normal {approvedByKind("normal")} · Combo 5 {approvedByKind("combo5")}</p></article>
+        <article className="card stat-card"><span>INGRESSOS APROVADOS</span><b>{TICKET_KINDS.reduce((s, k) => s + approvedByKind(k), 0)}</b><p>{TICKET_KINDS.map((k) => `${TICKET_LABEL[k]} ${approvedByKind(k)}`).join(" · ")}</p></article>
         <article className="card stat-card"><span>CORTESIAS</span><b>{stats.complimentary.total}</b><p>{plural(stats.complimentary.checkedIn, "já entrou", "já entraram")}</p></article>
         <article className="card stat-card"><span>CHECK-IN NA PORTARIA</span><b>{stats.checkedIn}</b><p>{plural(stats.checkedIn, "entrada confirmada", "entradas confirmadas")}</p></article>
         <article className="card stat-card"><span>AGUARDANDO APROVAÇÃO</span><b>{pending}</b><p>{br(byStatus("pending_approval")?.cents ?? 0)} em análise</p></article>
@@ -259,15 +257,16 @@ Só confirme se você já conferiu o pagamento por fora.`
         <span className="field-label">Ingressos</span>
         {mTickets.map((t, i) => <div className="linha-ingresso" key={i}>
           <select value={t.kind} onChange={(e) => setMTickets((all) => all.map((x, j) => j === i ? { ...x, kind: e.target.value } : x))} aria-label={`Tipo do ingresso ${i + 1}`}>
-            <option value="social">Social · R$ 20</option>
-            <option value="normal">Normal · R$ 25</option>
-            <option value="combo5">Combo 5 · R$ 80</option>
+            {TICKET_KINDS.map((k) => <option key={k} value={k}>{TICKET_LABEL[k]}{TICKET_STEP[k] > 1 ? ` (${TICKET_STEP[k]})` : ""} · R$ {TICKET_PRICE[k]}</option>)}
           </select>
           <input value={t.guestName} onChange={(e) => setMTickets((all) => all.map((x, j) => j === i ? { ...x, guestName: e.target.value } : x))} placeholder="Nome de quem vai usar" required />
           {mTickets.length > 1 && <button className="btn btn-sm btn-danger" type="button" onClick={() => setMTickets((all) => all.filter((_, j) => j !== i))} aria-label="Remover esta linha">×</button>}
         </div>)}
         <button className="btn btn-sm" type="button" onClick={() => setMTickets((all) => [...all, { kind: "normal", guestName: "" }])}>+ Adicionar ingresso</button>
-        {mTickets.filter((t) => t.kind === "combo5").length % 5 !== 0 && <p className="error">Cada Combo 5 precisa ter cinco participantes.</p>}
+        {TICKET_KINDS.filter((k) => TICKET_STEP[k] > 1).map((k) => {
+          const n = mTickets.filter((t) => t.kind === k).length;
+          return n % TICKET_STEP[k] === 0 ? null : <p className="error" key={k}>Cada {TICKET_LABEL[k]} precisa ter {TICKET_STEP[k]} participantes.</p>;
+        })}
 
         {COOLER_ENABLED && <label className="cooler-toggle"><input type="checkbox" checked={mCooler} onChange={(e) => setMCooler(e.target.checked)} /> Cooler (+ R$ {COOLER_PRICE})</label>}
 
@@ -359,7 +358,7 @@ Só confirme se você já conferiu o pagamento por fora.`
           {o.sellerName && <p>Vendedor: {o.sellerName}</p>}
           <p>{o.cooler ? "Com cooler" : "Sem cooler"} · {statusLabel[o.status] ?? o.status}{o.proofType === "manual" ? " · gerado na mão pela produção" : o.proofType === "declared" ? " · declarou que pagou" : ""}</p>
           {o.guests.map((g) => <p key={g.id}>
-            {g.removedAt ? `${g.name} (removido: ${g.removedReason})` : g.name} · {g.kind}{g.checkedInAt ? " · entrou" : ""}{" "}
+            {g.removedAt ? `${g.name} (removido: ${g.removedReason})` : g.name} · {TICKET_LABEL[g.kind as keyof typeof TICKET_LABEL] ?? g.kind}{g.checkedInAt ? " · entrou" : ""}{" "}
             {!g.removedAt && <button className="btn btn-sm" type="button" onClick={() => askRemove({ kind: "guest", id: g.id, name: g.name })}>Remover</button>}
           </p>)}
           {o.receiptUploaded && <div>

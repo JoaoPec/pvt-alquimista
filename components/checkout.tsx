@@ -5,14 +5,14 @@ import { toDataURL } from "qrcode";
 import { buildPixPayload } from "@/lib/pix";
 import { COOLER_ENABLED, COOLER_PRICE } from "@/lib/features";
 import { apiFetch, apiUrl } from "@/lib/client-api";
-import { canAdd as canAddTicket, changeTicket, clampToLimit, emptyCounts, guestsOf, type Counts, type TicketKind } from "@/lib/tickets";
+import { canAdd as canAddTicket, changeTicket, clampToLimit, emptyCounts, guestsOf, kindsOf, TICKET_KINDS, TICKET_LONG, TICKET_PERK, TICKET_PRICE, totalOf, type Counts, type TicketKind } from "@/lib/tickets";
 
 type Kind = TicketKind;
 type Step = "select" | "payment" | "sent";
 const pixKey = process.env.NEXT_PUBLIC_PIX_KEY ?? "";
-const labels: Record<Kind, string> = { social: "Social · 1 kg de alimento", normal: "Normal", combo5: "Combo 5 · 5 pessoas" };
-const prices: Record<Kind, number> = { social: 20, normal: 25, combo5: 80 };
-const perks: Record<Kind, string> = { social: "Solidário, valor reduzido", normal: "Entrada individual", combo5: "Melhor valor por pessoa" };
+const labels = TICKET_LONG;
+const prices = TICKET_PRICE;
+const perks = TICKET_PERK;
 
 export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxTickets?: number; djName?: string } = {}) {
   const [open, setOpen] = useState(false); const [step, setStep] = useState<Step>("select");
@@ -25,8 +25,8 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
   const totalGuests = guestsOf(counts);
   const canAdd = (kind: Kind) => canAddTicket(counts, kind, limit);
   const atLimit = totalGuests >= limit;
-  const total = counts.social * 20 + counts.normal * 25 + counts.combo5 * 80 + (cooler ? COOLER_PRICE : 0);
-  const kinds = useMemo(() => [...Array(counts.social).fill("social"), ...Array(counts.normal).fill("normal"), ...Array(counts.combo5 * 5).fill("combo5")] as Kind[], [counts]);
+  const total = totalOf(counts, cooler, COOLER_PRICE);
+  const kinds = useMemo(() => kindsOf(counts), [counts]);
   useEffect(() => {
     if (step !== "payment" || !pixKey) return;
     try {
@@ -72,7 +72,7 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
   async function declarePaid() { if (!window.confirm(`Confirmar que você já pagou R$ ${total.toFixed(2).replace(".", ",")} via Pix para o pedido ${code}?`)) return; setLoading(true); setError(""); try { const r = await apiFetch(`/api/orders/${code}/declare-paid`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao confirmar pagamento."); } finally { setLoading(false); } }
   return <><button className="ticket-action" onClick={() => { setOpen(true); setStep("select"); }}>Comprar ingresso <span>↗</span></button>{open && <div className="checkout-backdrop" role="dialog" aria-modal="true"><div className="checkout-shell alchemy-checkout"><button className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button>
     {step === "select" && <form onSubmit={submitOrder}><p className="kicker">INGRESSOS · LUA CHEIA</p><h2>Garanta antes de virar o lote.</h2><p className="checkout-ticket">Toque em <strong>adicionar</strong> para montar sua lista. O Combo 5 sai por apenas R$ 16 por pessoa.</p>
-      <div className="ticket-picker">{(Object.keys(labels) as Kind[]).map((kind) => (
+      <div className="ticket-picker">{TICKET_KINDS.map((kind) => (
         <article className={`picker-card${kind === "combo5" ? " featured" : ""}${counts[kind] > 0 ? " active" : ""}${!canAdd(kind) && counts[kind] === 0 ? " sold-out" : ""}`} key={kind}>
           <div className="picker-info"><b>{labels[kind]}</b><p>{perks[kind]}</p><span className="price">R$ {prices[kind]}</span>{counts[kind] > 0 && <span className="picked">{counts[kind]} selecionado{counts[kind] > 1 ? "s" : ""}</span>}</div>
           {counts[kind] === 0

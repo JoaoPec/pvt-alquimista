@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { toDataURL } from "qrcode";
 import { apiFetch } from "@/lib/client-api";
+import { TICKET_LABEL } from "@/lib/tickets";
 
 type Order = { code: string; buyerName: string; totalCents: number; cooler: boolean; status: string; proofType: string; sellerName: string | null; guests: { name: string; kind: string }[] };
 
@@ -54,6 +55,6 @@ export default function PedidoPage({ params }: { params: Promise<{ code: string 
       </div>
       {copied && <p className="success">{copied}</p>}
     </section>
-    <section className="card"><b>Participantes ({order.guests.length})</b>{order.guests.map((g) => <p key={g.name}>{g.name} · {g.kind}</p>)}</section>
+    <section className="card"><b>Participantes ({order.guests.length})</b>{order.guests.map((g) => <p key={g.name}>{g.name} · {TICKET_LABEL[g.kind as keyof typeof TICKET_LABEL] ?? g.kind}</p>)}</section>
     <p className="fineprint">A portaria lê este QR e confirma sua entrada. Não precisa de login.</p></main>;
 }
