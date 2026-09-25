@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 export type TicketKind = "social" | "normal" | "combo5";
 export type OrderStatus = "awaiting_receipt" | "pending_approval" | "approved" | "rejected";
-export type OrderProof = "receipt" | "declared";
+export type OrderProof = "receipt" | "declared" | "manual";
 
 type CreateOrderInput = {
   buyerName: string;
@@ -26,6 +26,7 @@ export type AdminOrder = {
   totalCents: number;
   cooler: boolean;
   status: OrderStatus;
+  proofType: OrderProof;
   createdAt: string;
   receiptUploaded: boolean;
   sellerId: number | null;
@@ -143,6 +144,7 @@ function toAdminOrder(row: Record<string, unknown>): AdminOrder {
   return {
     code: String(row.code), buyerName: String(row.buyer_name), email: String(row.email), whatsapp: String(row.whatsapp),
     totalCents: Number(row.total_cents), cooler: Boolean(row.cooler), status: row.status as OrderStatus,
+    proofType: (row.proof_type ?? "receipt") as OrderProof,
     createdAt: String(row.created_at), receiptUploaded: Boolean(row.receipt_uploaded),
     sellerId: row.seller_id == null ? null : Number(row.seller_id),
     sellerName: row.seller_name == null ? null : String(row.seller_name),
@@ -323,9 +325,51 @@ export function orderStats() {
 
 export function setOrderStatus(code: string, status: Extract<OrderStatus, "approved" | "rejected">) {
   const db = getDatabase();
-  const result = db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE code = ? AND status = 'pending_approval'`).run(status, code);
+  const result = db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE code = ? AND status IN ('pending_approval','awaiting_receipt')`).run(status, code);
   if (result.changes > 0) audit(status === "approved" ? "order.approved" : "order.rejected", { orderCode: code });
   return result.changes > 0;
+}
+
+/**
+ * Gera um pedido na mão — para quem pagou por fora (Pix na conta, dinheiro).
+ * Já entra aprovado, com comprovante marcado como "manual", e fica registrado
+ * na auditoria com o motivo e quem lançou.
+ */
+export function createManualOrder(input: {
+  buyerName: string;
+  email: string;
+  whatsapp: string;
+  tickets: Array<{ kind: TicketKind; guestName: string }>;
+  cooler: boolean;
+  totalCents: number;
+  sellerId: number | null;
+  note: string;
+}) {
+  const db = getDatabase();
+  if (input.sellerId != null) {
+    const seller = db.prepare(`SELECT id FROM sellers WHERE id = ? AND active = 1`).get(input.sellerId) as Record<string, unknown> | undefined;
+    if (!seller) throw new Error("DJ inválido.");
+    const usage = sellerUsage(input.sellerId);
+    if (input.tickets.length > usage.remaining) {
+      throw new Error(usage.remaining === 0 ? "Este link já atingiu o limite de ingressos." : `Restam apenas ${usage.remaining} ingresso(s) neste link.`);
+    }
+  }
+  const code = `ALQ-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  const cleanNote = input.note.trim().slice(0, 280);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = db.prepare(`INSERT INTO orders (code, buyer_name, email, whatsapp, total_cents, cooler, seller_id, proof_type, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', 'approved')`)
+      .run(code, input.buyerName, input.email, input.whatsapp, input.totalCents, input.cooler ? 1 : 0, input.sellerId);
+    const orderId = Number(result.lastInsertRowid);
+    const insertGuest = db.prepare(`INSERT INTO order_guests (order_id, guest_name, ticket_kind) VALUES (?, ?, ?)`);
+    for (const ticket of input.tickets) insertGuest.run(orderId, ticket.guestName, ticket.kind);
+    db.exec("COMMIT");
+    audit("order.created_manual", { orderCode: code, guestName: input.buyerName, detail: `${input.tickets.length} ingresso(s) · ${cleanNote}` });
+    return { code, status: "approved" as const };
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function removeGuest(guestId: number, reason: string) {

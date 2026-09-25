@@ -3,9 +3,10 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiFetch, authHeaders, apiUrl } from "@/lib/client-api";
 import { comprovanteNomes, comprovanteTexto, comprovanteTextoPedido, linkComprovante, linkPedido } from "@/lib/comprovante";
 import { lerToken, limparToken, salvarToken } from "@/lib/session";
+import { COOLER_ENABLED, COOLER_PRICE } from "@/lib/features";
 
 type Guest = { id: number; name: string; kind: string; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
-type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
+type Order = { code: string; buyerName: string; email: string; whatsapp: string; totalCents: number; cooler: boolean; status: string; proofType: string; receiptUploaded: boolean; sellerName: string | null; createdAt: string; guests: Guest[] };
 type Audit = { id: number; createdAt: string; action: string; orderCode: string | null; guestName: string | null; detail: string | null };
 type Receipt = { filename: string; contentType: string; dataBase64: string };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; sellerId: number | null; sellerName: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
@@ -13,7 +14,7 @@ type Stats = { byStatus: { status: string; orders: number; cents: number }[]; gu
 type Seller = { id: number; name: string; slug: string | null; quota: number; active: boolean; sold: number; given: number; used: number; remaining: number };
 type Lista = { nome: string; dj: string | null; total: number; entrados: number; convidados: { nome: string; entrou: boolean }[]; token: string };
 type Target = { kind: "guest" | "complimentary" | "seller"; id: number; name: string };
-type Tab = "visao" | "djs" | "cortesias" | "pedidos" | "log";
+type Tab = "visao" | "gerar" | "djs" | "cortesias" | "pedidos" | "log";
 
 const br = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
 /** "1 pedido" / "2 pedidos" — evita o "1 pedidos" na tela. */
@@ -35,6 +36,9 @@ export default function AdminPage() {
   const [complimentary, setComplimentary] = useState<Complimentary[]>([]);
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [listas, setListas] = useState<Lista[]>([]);
+  const [mName, setMName] = useState(""); const [mEmail, setMEmail] = useState(""); const [mWhats, setMWhats] = useState("");
+  const [mNote, setMNote] = useState(""); const [mSeller, setMSeller] = useState(""); const [mCooler, setMCooler] = useState(false);
+  const [mTickets, setMTickets] = useState<Array<{ kind: string; guestName: string }>>([{ kind: "normal", guestName: "" }]);
   const [copiado, setCopiado] = useState("");
   const [receipts, setReceipts] = useState<Record<string, Receipt>>({});
   const [error, setError] = useState("");
@@ -84,11 +88,39 @@ export default function AdminPage() {
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao entrar."); }
   };
 
-  const action = async (code: string, act: "approve" | "reject") => {
+  const action = async (code: string, act: "approve" | "reject", semComprovante = false) => {
+    const aviso = semComprovante
+      ? `Aprovar o pedido ${code} SEM comprovante anexado?
+
+Só confirme se você já conferiu o pagamento por fora.`
+      : act === "approve" ? `Aprovar o pedido ${code}?` : `Recusar o pedido ${code}?`;
+    if (!window.confirm(aviso)) return;
     try {
-      await apiFetch("/api/admin", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ code, action: act }) });
-      await load(token);
+      const r = await apiFetch("/api/admin", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ code, action: act }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      if (Array.isArray(d.orders)) setOrders(d.orders);
+      if (d.stats) setStats(d.stats);
+      setError("");
     } catch (x) { setError(x instanceof Error ? x.message : "Falha na ação."); }
+  };
+
+  const criarManual = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const r = await apiFetch("/api/admin", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({
+        manual: { buyerName: mName, email: mEmail, whatsapp: mWhats, note: mNote, sellerId: mSeller ? Number(mSeller) : null, cooler: mCooler, tickets: mTickets },
+      }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      if (Array.isArray(d.orders)) setOrders(d.orders);
+      if (d.stats) setStats(d.stats);
+      setCopiado(`Ingresso ${d.manual.code} gerado e já aprovado.`);
+      setMName(""); setMEmail(""); setMWhats(""); setMNote(""); setMCooler(false);
+      setMTickets([{ kind: "normal", guestName: "" }]);
+      setError("");
+      setTimeout(() => setCopiado(""), 6000);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao gerar o ingresso."); }
   };
 
   const view = async (code: string) => {
@@ -156,6 +188,11 @@ export default function AdminPage() {
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao reativar."); }
   };
 
+  const mTotal = mTickets.filter((t) => t.kind === "social").length * 20
+    + mTickets.filter((t) => t.kind === "normal").length * 25
+    + (mTickets.filter((t) => t.kind === "combo5").length / 5) * 80
+    + (mCooler ? COOLER_PRICE : 0);
+
   const approvedByKind = (kind: string) => stats?.guests.find((g) => g.status === "approved" && g.kind === kind)?.count ?? 0;
   const byStatus = (status: string) => stats?.byStatus.find((s) => s.status === status);
   const pending = byStatus("pending_approval")?.orders ?? 0;
@@ -174,6 +211,7 @@ export default function AdminPage() {
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: "visao", label: "Visão geral" },
+    { id: "gerar", label: "Gerar ingresso" },
     { id: "djs", label: "DJs e links", badge: sellers.length },
     { id: "cortesias", label: "Cortesias", badge: complimentary.filter((c) => !c.removedAt).length },
     { id: "pedidos", label: "Pedidos", badge: pending || undefined },
@@ -210,6 +248,40 @@ export default function AdminPage() {
         <article className="card stat-card"><span>REMOVIDOS (PRESERVADOS)</span><b>{stats.removed}</b><p>fora da portaria, com log</p></article>
         {stats.bySeller.length > 0 && <article className="card stat-card wide"><span>POR VENDEDOR (APROVADOS)</span>{stats.bySeller.map((s) => <p key={s.seller}>{s.seller} · {plural(s.orders, "pedido", "pedidos")} · {plural(s.guests, "pessoa", "pessoas")} · {br(s.cents)}</p>)}</article>}
       </section>}
+
+      {tab === "gerar" && <form className="card" onSubmit={criarManual}>
+        <b>Gerar ingresso na mão</b>
+        <p className="fineprint">Para quem pagou por fora (Pix na conta, dinheiro, cortesia da produção). O ingresso <strong>já entra aprovado</strong> e o nome vai direto para a lista da portaria.</p>
+        <label>Nome do comprador<input value={mName} onChange={(e) => setMName(e.target.value)} placeholder="Quem pagou" required /></label>
+        <label>WhatsApp<input value={mWhats} onChange={(e) => setMWhats(e.target.value)} placeholder="Para avisos do evento" /></label>
+        <label>E-mail (opcional)<input value={mEmail} onChange={(e) => setMEmail(e.target.value)} placeholder="Se quiser mandar o comprovante" /></label>
+
+        <span className="field-label">Ingressos</span>
+        {mTickets.map((t, i) => <div className="linha-ingresso" key={i}>
+          <select value={t.kind} onChange={(e) => setMTickets((all) => all.map((x, j) => j === i ? { ...x, kind: e.target.value } : x))} aria-label={`Tipo do ingresso ${i + 1}`}>
+            <option value="social">Social · R$ 20</option>
+            <option value="normal">Normal · R$ 25</option>
+            <option value="combo5">Combo 5 · R$ 80</option>
+          </select>
+          <input value={t.guestName} onChange={(e) => setMTickets((all) => all.map((x, j) => j === i ? { ...x, guestName: e.target.value } : x))} placeholder="Nome de quem vai usar" required />
+          {mTickets.length > 1 && <button className="btn btn-sm btn-danger" type="button" onClick={() => setMTickets((all) => all.filter((_, j) => j !== i))} aria-label="Remover esta linha">×</button>}
+        </div>)}
+        <button className="btn btn-sm" type="button" onClick={() => setMTickets((all) => [...all, { kind: "normal", guestName: "" }])}>+ Adicionar ingresso</button>
+        {mTickets.filter((t) => t.kind === "combo5").length % 5 !== 0 && <p className="error">Cada Combo 5 precisa ter cinco participantes.</p>}
+
+        {COOLER_ENABLED && <label className="cooler-toggle"><input type="checkbox" checked={mCooler} onChange={(e) => setMCooler(e.target.checked)} /> Cooler (+ R$ {COOLER_PRICE})</label>}
+
+        <label>Vendedor / DJ (opcional)
+          <select value={mSeller} onChange={(e) => setMSeller(e.target.value)}>
+            <option value="">Sem vendedor</option>
+            {sellers.filter((x) => x.active).map((x) => <option key={x.id} value={x.id}>{x.name} · restam {x.remaining}</option>)}
+          </select>
+        </label>
+        <label>Motivo (fica no log)<input value={mNote} onChange={(e) => setMNote(e.target.value)} placeholder="Ex: Pix recebido na conta em 23/09" required /></label>
+
+        <p className="checkout-ticket">Total <strong>R$ {mTotal.toFixed(2).replace(".", ",")}</strong> · {mTickets.length} {mTickets.length === 1 ? "ingresso" : "ingressos"}</p>
+        <button className="btn" type="submit">Gerar e aprovar</button>
+      </form>}
 
       {tab === "djs" && <>
         <form className="card" onSubmit={addDj}>
@@ -285,7 +357,7 @@ export default function AdminPage() {
           <b>{o.code} · {br(o.totalCents)}</b>
           <p>{o.buyerName} · {o.whatsapp} · {o.email}</p>
           {o.sellerName && <p>Vendedor: {o.sellerName}</p>}
-          <p>{o.cooler ? "Com cooler" : "Sem cooler"} · {statusLabel[o.status] ?? o.status}</p>
+          <p>{o.cooler ? "Com cooler" : "Sem cooler"} · {statusLabel[o.status] ?? o.status}{o.proofType === "manual" ? " · gerado na mão pela produção" : o.proofType === "declared" ? " · declarou que pagou" : ""}</p>
           {o.guests.map((g) => <p key={g.id}>
             {g.removedAt ? `${g.name} (removido: ${g.removedReason})` : g.name} · {g.kind}{g.checkedInAt ? " · entrou" : ""}{" "}
             {!g.removedAt && <button className="btn btn-sm" type="button" onClick={() => askRemove({ kind: "guest", id: g.id, name: g.name })}>Remover</button>}
@@ -295,8 +367,9 @@ export default function AdminPage() {
             <button className="btn btn-sm" type="button" onClick={() => window.open(`${apiUrl(`/api/admin/receipts/${o.code}/download`)}?token=${encodeURIComponent(token)}`, "_blank")}>Baixar</button>
             {receipts[o.code] && <img src={`data:${receipts[o.code].contentType};base64,${receipts[o.code].dataBase64}`} alt={`Comprovante ${o.code}`} style={{ maxWidth: "100%", borderRadius: 8 }} />}
           </div>}
-          {o.status === "pending_approval" && <div>
-            <button className="btn" onClick={() => action(o.code, "approve")}>Aprovar</button>{" "}
+          {(o.status === "pending_approval" || o.status === "awaiting_receipt") && <div className="acoes-pedido">
+            {o.status === "awaiting_receipt" && <p className="fineprint">Sem comprovante anexado — confira o pagamento antes de aprovar.</p>}
+            <button className="btn" onClick={() => action(o.code, "approve", o.status === "awaiting_receipt")}>Aprovar</button>{" "}
             <button className="btn" onClick={() => action(o.code, "reject")}>Recusar</button>
           </div>}
           <div className="ticket-actions">
