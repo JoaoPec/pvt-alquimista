@@ -5,7 +5,7 @@ import { migrarTiposDeIngresso } from "./migrations";
 
 export type TicketKind = "social" | "normal" | "combo2" | "combo3" | "combo5";
 export type OrderStatus = "awaiting_receipt" | "pending_approval" | "approved" | "rejected";
-export type OrderProof = "receipt" | "declared" | "manual";
+export type OrderProof = "receipt" | "declared" | "manual" | "portaria";
 
 type CreateOrderInput = {
   buyerName: string;
@@ -333,6 +333,51 @@ export function setOrderStatus(code: string, status: Extract<OrderStatus, "appro
   const result = db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE code = ? AND status IN ('pending_approval','awaiting_receipt')`).run(status, code);
   if (result.changes > 0) audit(status === "approved" ? "order.approved" : "order.rejected", { orderCode: code });
   return result.changes > 0;
+}
+
+/**
+ * Venda feita no balcão da portaria (ingresso de R$ 25).
+ *
+ * Nasce PENDENTE, com o QR do Pix — o nome já fica guardado para o caso de a
+ * portaria recarregar a página no meio da venda. Quando o Pix cai, a portaria
+ * confirma e o pedido vira aprovado, liberando a entrada.
+ */
+export function createPorterSale(input: { buyerName: string; names: string[]; totalCents: number }) {
+  const db = getDatabase();
+  const code = `ALQ-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = db.prepare(`INSERT INTO orders (code, buyer_name, email, whatsapp, total_cents, cooler, seller_id, proof_type, status) VALUES (?, ?, '', '', ?, 0, NULL, 'portaria', 'awaiting_receipt')`)
+      .run(code, input.buyerName, input.totalCents);
+    const orderId = Number(result.lastInsertRowid);
+    const insertGuest = db.prepare(`INSERT INTO order_guests (order_id, guest_name, ticket_kind) VALUES (?, ?, 'normal')`);
+    for (const nome of input.names) insertGuest.run(orderId, nome);
+    db.exec("COMMIT");
+    audit("order.porter_sale", { orderCode: code, guestName: input.buyerName, detail: `${input.names.length} ingresso(s) de R$ 25 na portaria` });
+    return { code, status: "awaiting_receipt" as const };
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/** Vendas da portaria ainda aguardando confirmação do Pix. */
+export function listPorterPending() {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT o.code, o.buyer_name, o.total_cents, o.created_at,
+           (SELECT COUNT(*) FROM order_guests g WHERE g.order_id = o.id AND g.removed_at IS NULL) AS pessoas
+      FROM orders o
+     WHERE o.status = 'awaiting_receipt' AND o.proof_type = 'portaria'
+     ORDER BY o.created_at DESC
+  `).all() as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    code: String(row.code),
+    buyerName: String(row.buyer_name),
+    totalCents: Number(row.total_cents),
+    pessoas: Number(row.pessoas),
+    createdAt: String(row.created_at),
+  }));
 }
 
 /**

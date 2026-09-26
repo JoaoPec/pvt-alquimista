@@ -1,5 +1,5 @@
 import { apiOptions, apiResponse } from "@/lib/api";
-import { createListToken, getBearerToken, isAdminToken, readListToken } from "@/lib/auth";
+import { createListToken, getBearerToken, isDoorToken, readListToken } from "@/lib/auth";
 import {
   approvedGuests, checkInComplimentary, checkInGuest, checkInList, checkInOrder, listComplimentary,
   undoCheckInComplimentary, undoCheckInGuest, undoCheckInList, undoCheckInOrder,
@@ -11,7 +11,7 @@ export function OPTIONS(request: Request) { return apiOptions(request); }
 
 export function GET(request: Request) {
   try {
-    if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
+    if (!isDoorToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
     const ativas = listComplimentary(false);
     const listas = Array.from(new Set(ativas.map((c) => c.listName))).sort((a, b) => a.localeCompare(b)).map((nome) => ({
       nome,
@@ -39,7 +39,7 @@ function alvo(body: Corpo): { tipo: "lista" | "pedido" | "cortesia" | "convidado
 
 export async function POST(request: Request) {
   try {
-    if (!isAdminToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
+    if (!isDoorToken(getBearerToken(request))) return apiResponse(request, { error: "Acesso não autorizado." }, { status: 401 });
     const body = await request.json() as Corpo;
     const destino = alvo(body);
     if ("erro" in destino) return apiResponse(request, { error: destino.erro }, { status: 422 });

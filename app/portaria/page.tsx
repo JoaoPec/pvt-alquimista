@@ -1,13 +1,16 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { toDataURL } from "qrcode";
 import { apiFetch, authHeaders } from "@/lib/client-api";
 import { lerToken, limparToken, salvarToken } from "@/lib/session";
-import { TICKET_KINDS, TICKET_LABEL, TICKET_PRICE, TICKET_STEP } from "@/lib/tickets";
+import { TICKET_KINDS, TICKET_LABEL, TICKET_PRICE } from "@/lib/tickets";
 
 type Guest = { id: number; name: string; kind: string; code: string; checkedInAt: string | null };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null };
 type ScanGuest = { name: string; kind: string; checkedIn: boolean };
 type ScanResult = { ok: boolean; message: string; code?: string; buyerName?: string; guests?: ScanGuest[] };
+type Pendente = { code: string; buyerName: string; totalCents: number; pessoas: number; createdAt: string };
+type Cobranca = { code: string; totalCents: number; pessoas: number; pixPayload: string | null };
 
 type DetectedBarcode = { rawValue: string };
 type BarcodeDetectorLike = { detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]> };
@@ -16,6 +19,8 @@ type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDete
 const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const kindLabel: Record<string, string> = TICKET_LABEL;
 const kindOrder = TICKET_KINDS;
+const PRECO = TICKET_PRICE.normal;
+const brl = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
 
 /** Aceita o QR do pedido ("ALQUIMISTA:ALQ-XXXX"), o QR da lista ("ALQUIMISTA-LISTA:..."), a URL do pedido ou o código solto. */
 function parseScan(raw: string): { kind: "lista"; token: string } | { kind: "pedido"; code: string } | null {
@@ -36,12 +41,18 @@ export default function PortariaPage() {
   const [listas, setListas] = useState<Array<{ nome: string; total: number; entrados: number; token: string }>>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [aviso, setAviso] = useState("");
   const [scanning, setScanning] = useState(false);
   const [cameraBlocked, setCameraBlocked] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [pendente, setPendente] = useState<{ token: string; lista: string; total: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  // venda no balcão
+  const [nomes, setNomes] = useState<string[]>([""]);
+  const [cobranca, setCobranca] = useState<Cobranca | null>(null);
+  const [qrVenda, setQrVenda] = useState("");
+  const [aguardando, setAguardando] = useState<Pendente[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stopRef = useRef(false);
@@ -53,24 +64,28 @@ export default function PortariaPage() {
     setGuests(d.guests ?? []);
     setComplimentary(d.complimentary ?? []);
     setListas(d.listas ?? []);
+    const p = await apiFetch("/api/portaria", { headers: authHeaders(t) });
+    const pd = await p.json();
+    if (p.ok) setAguardando(pd.pendentes ?? []);
   };
   // Retoma a sessão guardada: fechar a aba não derruba mais o login.
   useEffect(() => {
-    const salvo = lerToken();
+    const salvo = lerToken("portaria");
     if (!salvo) return;
-    load(salvo).then(() => setToken(salvo)).catch(() => limparToken());
+    load(salvo).then(() => setToken(salvo)).catch(() => limparToken("portaria"));
   }, []);
 
-  const sair = () => { limparToken(); setToken(""); setPassword(""); };
+  const sair = () => { limparToken("portaria"); setToken(""); setPassword(""); };
 
   const login = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      const r = await apiFetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
+      const r = await apiFetch("/api/portaria", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
       const d = await r.json();
       if (!r.ok) throw Error(d.error);
-      salvarToken(d.token);
+      salvarToken("portaria", d.token);
       setToken(d.token);
+      setError("");
       await load(d.token);
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao entrar."); }
   };
@@ -98,6 +113,53 @@ export default function PortariaPage() {
   };
   const desfazerGuest = (id: number) => desfazer({ guestId: id }, "participante liberado de novo");
   const desfazerComplimentary = (id: number) => desfazer({ complimentaryId: id }, "cortesia liberada de novo");
+
+  // ---------- venda no balcão ----------
+  const nomesValidos = nomes.map((n) => n.trim()).filter(Boolean);
+  const totalVenda = nomesValidos.length * PRECO * 100;
+
+  const cobrar = async () => {
+    setError(""); setAviso("");
+    if (nomesValidos.length === 0) { setError("Preencha o nome de quem vai entrar."); return; }
+    setBusy(true);
+    try {
+      const r = await apiFetch("/api/portaria", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ action: "cobrar", names: nomesValidos }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      setCobranca({ code: d.code, totalCents: d.totalCents, pessoas: d.pessoas, pixPayload: d.pixPayload ?? null });
+      if (d.pixPayload) {
+        const url = await toDataURL(d.pixPayload, { margin: 1, width: 320, color: { dark: "#0a283c", light: "#f5ecda" } }).catch(() => "");
+        setQrVenda(url);
+      } else setQrVenda("");
+      setNomes([""]);
+      await load(token);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao gerar a cobrança."); }
+    finally { setBusy(false); }
+  };
+
+  const decidir = async (code: string, confirmar: boolean) => {
+    setError(""); setAviso("");
+    if (confirmar && !window.confirm(`Confirmar que o Pix de ${code} caiu?\n\nOs nomes entram na lista da portaria agora.`)) return;
+    if (!confirmar && !window.confirm(`Cancelar a venda ${code}?`)) return;
+    setBusy(true);
+    try {
+      const r = await apiFetch("/api/portaria", { method: "POST", headers: authHeaders(token, true), body: JSON.stringify({ action: confirmar ? "confirmar" : "cancelar", code }) });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      setAviso(confirmar ? `Pagamento confirmado · ${code}. As entradas já estão na lista.` : `Venda ${code} cancelada.`);
+      if (cobranca?.code === code) { setCobranca(null); setQrVenda(""); }
+      await load(token);
+      setTimeout(() => setAviso(""), 6000);
+    } catch (x) { setError(x instanceof Error ? x.message : "Falha ao decidir a venda."); }
+    finally { setBusy(false); }
+  };
+
+  const copiarPix = async () => {
+    if (!cobranca?.pixPayload) return;
+    try { await navigator.clipboard.writeText(cobranca.pixPayload); setAviso("Pix copiado."); }
+    catch { setAviso("Não foi possível copiar. Selecione o código na tela."); }
+    setTimeout(() => setAviso(""), 4000);
+  };
 
   const stopCamera = useCallback(() => {
     stopRef.current = true;
@@ -216,7 +278,7 @@ export default function PortariaPage() {
   if (!token) return <main className="admin-page">
     <form className="card" onSubmit={login}>
       <p className="kicker">PVT ALQUIMISTA</p><h1>Portaria</h1>
-      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Senha" required />
+      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Senha da portaria" required />
       <button className="btn">Entrar</button>
       {error && <p className="error">{error}</p>}
     </form>
@@ -237,6 +299,47 @@ export default function PortariaPage() {
 
     <section className="admin-body">
       {error && <p className="error">{error}</p>}
+      {aviso && <p className="success">{aviso}</p>}
+
+      <section className="balcao">
+        <h2>Vender ingresso · {brl(PRECO * 100)}</h2>
+        <p className="fineprint">Preencha o nome de cada pessoa. Gere o QR, receba o Pix e confirme — aí a entrada entra na lista.</p>
+
+        {!cobranca && <>
+          {nomes.map((n, i) => <div className="linha-ingresso" key={i}>
+            <input value={n} onChange={(e) => setNomes((all) => all.map((x, j) => j === i ? e.target.value : x))} placeholder={`Nome de quem vai entrar${i > 0 ? ` (${i + 1})` : ""}`} />
+            {nomes.length > 1 && <button className="btn btn-sm btn-danger" type="button" onClick={() => setNomes((all) => all.filter((_, j) => j !== i))} aria-label="Remover este nome">×</button>}
+          </div>)}
+          <button className="btn btn-sm" type="button" onClick={() => setNomes((all) => [...all, ""])}>+ Adicionar pessoa</button>
+          <p className="checkout-ticket">Total <strong>{brl(totalVenda)}</strong> · {nomesValidos.length} {nomesValidos.length === 1 ? "ingresso" : "ingressos"}</p>
+          <button className="btn" type="button" disabled={busy || nomesValidos.length === 0} onClick={cobrar}>{busy ? "Gerando…" : "Gerar QR do Pix"}</button>
+        </>}
+
+        {cobranca && <div className="cobranca">
+          <b>{cobranca.code} · {brl(cobranca.totalCents)} · {cobranca.pessoas} {cobranca.pessoas === 1 ? "pessoa" : "pessoas"}</b>
+          {qrVenda && <img className="pix-qr" src={qrVenda} alt="QR Code do Pix" />}
+          {cobranca.pixPayload
+            ? <div className="pix-key"><code>{cobranca.pixPayload}</code><button className="btn btn-sm" type="button" onClick={copiarPix}>Copiar Pix</button></div>
+            : <p className="error">Pix não configurado na API. Use a chave do evento.</p>}
+          <p className="fineprint">Só confirme depois de ver o pagamento cair.</p>
+          <div className="ticket-actions">
+            <button className="btn" type="button" disabled={busy} onClick={() => decidir(cobranca.code, true)}>Confirmar pagamento</button>
+            <button className="btn btn-sm" type="button" disabled={busy} onClick={() => decidir(cobranca.code, false)}>Cancelar</button>
+          </div>
+        </div>}
+
+        {aguardando.length > 0 && <div className="aguardando">
+          <h3>Aguardando confirmação · {aguardando.length}</h3>
+          {aguardando.map((p) => <div className="linha-pendente" key={p.code}>
+            <span><strong>{p.buyerName}</strong> · {p.pessoas} {p.pessoas === 1 ? "pessoa" : "pessoas"} · {brl(p.totalCents)} <em>{p.code}</em></span>
+            <span className="ticket-actions">
+              <button className="btn btn-sm" type="button" disabled={busy} onClick={() => decidir(p.code, true)}>Confirmar</button>
+              <button className="btn btn-sm btn-danger" type="button" disabled={busy} onClick={() => decidir(p.code, false)}>Cancelar</button>
+            </span>
+          </div>)}
+        </div>}
+      </section>
+
       {pendente && <article className="card scan-result aviso">
         <b>⚠ Liberar a lista inteira?</b>
         <p><strong>{pendente.lista}</strong> · {pendente.total} {pendente.total === 1 ? "ingresso" : "ingressos"}</p>

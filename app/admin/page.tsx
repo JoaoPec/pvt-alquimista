@@ -70,12 +70,12 @@ export default function AdminPage() {
 
   // Retoma a sessão guardada: fechar a aba não derruba mais o login.
   useEffect(() => {
-    const salvo = lerToken();
+    const salvo = lerToken("admin");
     if (!salvo) return;
-    load(salvo).then(() => setToken(salvo)).catch(() => limparToken());
+    load(salvo).then(() => setToken(salvo)).catch(() => limparToken("admin"));
   }, []);
 
-  const sair = () => { limparToken(); setToken(""); setPassword(""); };
+  const sair = () => { limparToken("admin"); setToken(""); setPassword(""); };
 
   const login = async (event: FormEvent) => {
     event.preventDefault();
@@ -83,7 +83,7 @@ export default function AdminPage() {
       const r = await apiFetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
       const d = await r.json();
       if (!r.ok) throw Error(d.error);
-      salvarToken(d.token);
+      salvarToken("admin", d.token);
       setToken(d.token);
       await load(d.token);
     } catch (x) { setError(x instanceof Error ? x.message : "Falha ao entrar."); }
