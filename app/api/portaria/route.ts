@@ -2,12 +2,12 @@ import { apiOptions, apiResponse } from "@/lib/api";
 import { createPorterToken, getBearerToken, isPorterToken, verifyPorterPassword } from "@/lib/auth";
 import { createPorterSale, listPorterPending, setOrderStatus } from "@/lib/db";
 import { buildPixPayload } from "@/lib/pix";
-import { TICKET_PRICE } from "@/lib/tickets";
+import { PORTARIA_PRICE } from "@/lib/tickets";
 
 export const runtime = "nodejs";
 
-/** A portaria vende UM tipo de ingresso: o normal, de R$ 25. */
-const PRECO_REAIS = TICKET_PRICE.normal;
+/** A portaria vende UM tipo de ingresso: o normal, de R$ 30. */
+const PRECO_REAIS = PORTARIA_PRICE;
 const MAX_POR_VENDA = 20;
 
 type Corpo = {

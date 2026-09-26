@@ -18,6 +18,8 @@ export const TICKET_STEP: Record<TicketKind, number> = { social: 1, normal: 1, c
 
 /** Preço em reais. */
 export const TICKET_PRICE: Record<TicketKind, number> = { social: 20, normal: 25, combo2: 35, combo3: 50, combo5: 80 };
+/** Preço unitário praticado exclusivamente na venda presencial da portaria. */
+export const PORTARIA_PRICE = 30;
 
 /** Nome curto, para listas e portaria. */
 export const TICKET_LABEL: Record<TicketKind, string> = {

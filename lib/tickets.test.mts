@@ -3,7 +3,7 @@
  */
 import {
   canAdd, changeTicket, clampToLimit, emptyCounts, guestsOf, kindsOf, precoDe, totalOf,
-  validarIngressos, TICKET_KINDS, TICKET_PRICE, TICKET_STEP, type Counts, type TicketKind,
+  validarIngressos, TICKET_KINDS, TICKET_PRICE, PORTARIA_PRICE, TICKET_STEP, type Counts, type TicketKind,
 } from "./tickets.ts";
 
 let fails = 0;
@@ -23,6 +23,7 @@ console.log("--- catalogo de ingressos ---");
 check("5 tipos a venda", TICKET_KINDS, ["social", "normal", "combo2", "combo3", "combo5"]);
 check("preco social 20", TICKET_PRICE.social, 20);
 check("preco normal 25", TICKET_PRICE.normal, 25);
+check("preco portaria 30", PORTARIA_PRICE, 30);
 check("preco combo2 35", TICKET_PRICE.combo2, 35);
 check("preco combo3 50", TICKET_PRICE.combo3, 50);
 check("preco combo5 80", TICKET_PRICE.combo5, 80);

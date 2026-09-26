@@ -336,7 +336,7 @@ export function setOrderStatus(code: string, status: Extract<OrderStatus, "appro
 }
 
 /**
- * Venda feita no balcão da portaria (ingresso de R$ 25).
+ * Venda feita no balcão da portaria (ingresso de R$ 30).
  *
  * Nasce PENDENTE, com o QR do Pix — o nome já fica guardado para o caso de a
  * portaria recarregar a página no meio da venda. Quando o Pix cai, a portaria
@@ -353,7 +353,7 @@ export function createPorterSale(input: { buyerName: string; names: string[]; to
     const insertGuest = db.prepare(`INSERT INTO order_guests (order_id, guest_name, ticket_kind) VALUES (?, ?, 'normal')`);
     for (const nome of input.names) insertGuest.run(orderId, nome);
     db.exec("COMMIT");
-    audit("order.porter_sale", { orderCode: code, guestName: input.buyerName, detail: `${input.names.length} ingresso(s) de R$ 25 na portaria` });
+    audit("order.porter_sale", { orderCode: code, guestName: input.buyerName, detail: `${input.names.length} ingresso(s) de R$ 30 na portaria` });
     return { code, status: "awaiting_receipt" as const };
   } catch (error) {
     db.exec("ROLLBACK");

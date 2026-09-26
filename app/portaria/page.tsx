@@ -3,7 +3,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { apiFetch, authHeaders } from "@/lib/client-api";
 import { lerToken, limparToken, salvarToken } from "@/lib/session";
-import { TICKET_KINDS, TICKET_LABEL, TICKET_PRICE } from "@/lib/tickets";
+import { PORTARIA_PRICE, TICKET_KINDS, TICKET_LABEL } from "@/lib/tickets";
 
 type Guest = { id: number; name: string; kind: string; code: string; checkedInAt: string | null };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; checkedInAt: string | null };
@@ -19,7 +19,7 @@ type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDete
 const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const kindLabel: Record<string, string> = TICKET_LABEL;
 const kindOrder = TICKET_KINDS;
-const PRECO = TICKET_PRICE.normal;
+const PRECO = PORTARIA_PRICE;
 const brl = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
 
 /** Aceita o QR do pedido ("ALQUIMISTA:ALQ-XXXX"), o QR da lista ("ALQUIMISTA-LISTA:..."), a URL do pedido ou o código solto. */
