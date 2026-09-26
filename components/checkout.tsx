@@ -13,6 +13,8 @@ const pixKey = process.env.NEXT_PUBLIC_PIX_KEY ?? "";
 const labels = TICKET_LONG;
 const prices = TICKET_PRICE;
 const perks = TICKET_PERK;
+const PENDING_ORDER_KEY = "pvt-alquimista-pending-order";
+type PendingOrder = { code: string; totalCents: number; createdAt: number };
 
 export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxTickets?: number; djName?: string } = {}) {
   const [open, setOpen] = useState(false); const [step, setStep] = useState<Step>("select");
@@ -21,20 +23,51 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
   const [cooler, setCooler] = useState(false);
   const [buyer, setBuyer] = useState(""); const [extraNames, setExtraNames] = useState<string[]>([]);
   const [receiptName, setReceiptName] = useState("");
-  const [code, setCode] = useState(""); const [qr, setQr] = useState(""); const [pixPayload, setPixPayload] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
+  const [code, setCode] = useState(""); const [paymentTotalCents, setPaymentTotalCents] = useState<number | null>(null); const [qr, setQr] = useState(""); const [pixPayload, setPixPayload] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const totalGuests = guestsOf(counts);
   const canAdd = (kind: Kind) => canAddTicket(counts, kind, limit);
   const atLimit = totalGuests >= limit;
   const total = totalOf(counts, cooler, COOLER_PRICE);
+  const paymentTotal = paymentTotalCents == null ? total : paymentTotalCents / 100;
   const kinds = useMemo(() => kindsOf(counts), [counts]);
   useEffect(() => {
     if (step !== "payment" || !pixKey) return;
     try {
-      const payload = buildPixPayload({ key: pixKey, name: "PVT ALQUIMISTA", city: "AREMBEPE", amount: total, txid: code.replace(/[^A-Za-z0-9]/g, "") });
+      const payload = buildPixPayload({ key: pixKey, name: "PVT ALQUIMISTA", city: "AREMBEPE", amount: paymentTotal, txid: code.replace(/[^A-Za-z0-9]/g, "") });
       setPixPayload(payload);
       toDataURL(payload, { margin: 1, width: 320, color: { dark: "#0a283c", light: "#f5ecda" } }).then(setQr).catch(() => setQr(""));
     } catch { setPixPayload(""); setQr(""); }
-  }, [step, total, code]);
+  }, [step, paymentTotal, code]);
+  // Retoma a cobrança se o usuário voltar do banco/app do Pix ou recarregar a página.
+  useEffect(() => {
+    let saved: PendingOrder | null = null;
+    try {
+      const raw = window.localStorage.getItem(PENDING_ORDER_KEY);
+      if (raw) saved = JSON.parse(raw) as PendingOrder;
+    } catch { saved = null; }
+    if (!saved?.code || !Number.isFinite(saved.totalCents) || Date.now() - saved.createdAt > 7 * 24 * 60 * 60 * 1000) {
+      if (saved) window.localStorage.removeItem(PENDING_ORDER_KEY);
+      return;
+    }
+    setCode(saved.code);
+    setPaymentTotalCents(saved.totalCents);
+    setStep("payment");
+    setOpen(true);
+    apiFetch(`/api/orders/${encodeURIComponent(saved.code)}`)
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || !data.order || !["awaiting_receipt", "pending_approval"].includes(data.order.status)) {
+          window.localStorage.removeItem(PENDING_ORDER_KEY);
+          setOpen(false);
+          setStep("select");
+          setCode("");
+          setPaymentTotalCents(null);
+          return;
+        }
+        setPaymentTotalCents(Number(data.order.totalCents));
+      })
+      .catch(() => { /* mantém a cobrança na tela; o envio poderá tentar novamente */ });
+  }, []);
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -65,12 +98,19 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
     const guestNames = [buyer.trim(), ...extraNames.map((n) => n.trim())];
     try {
       const r = await apiFetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyerName: buyer.trim(), email: form.get("email"), whatsapp: form.get("whatsapp"), cooler, djSlug: djSlug ?? null, tickets: kinds.map((kind, i) => ({ kind, guestName: guestNames[i] })) }) });
-      const data = await r.json(); if (!r.ok) throw new Error(data.error); setCode(data.code); setStep("payment");
+      const data = await r.json(); if (!r.ok) throw new Error(data.error);
+      const saved: PendingOrder = { code: data.code, totalCents: Number(data.totalCents), createdAt: Date.now() };
+      window.localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(saved));
+      setCode(data.code); setPaymentTotalCents(saved.totalCents); setStep("payment");
     } catch (e) { setError(e instanceof Error ? e.message : "Falha ao criar pedido."); } finally { setLoading(false); }
   }
-  async function submitReceipt(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const receipt = new FormData(event.currentTarget).get("receipt"); if (!(receipt instanceof File)) return setError("Escolha o comprovante ou use o botão Já paguei."); setLoading(true); setError(""); try { const body = new FormData(); body.set("receipt", receipt); const r = await apiFetch(`/api/orders/${code}/receipt`, { method: "POST", body }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao enviar comprovante."); } finally { setLoading(false); } }
-  async function declarePaid() { if (!window.confirm(`Confirmar que você já pagou R$ ${total.toFixed(2).replace(".", ",")} via Pix para o pedido ${code}?`)) return; setLoading(true); setError(""); try { const r = await apiFetch(`/api/orders/${code}/declare-paid`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao confirmar pagamento."); } finally { setLoading(false); } }
-  return <><button className="ticket-action" onClick={() => { setOpen(true); setStep("select"); }}>Comprar ingresso <span>↗</span></button>{open && <div className="checkout-backdrop" role="dialog" aria-modal="true"><div className="checkout-shell alchemy-checkout"><button className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button>
+  async function submitReceipt(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const receipt = new FormData(event.currentTarget).get("receipt"); if (!(receipt instanceof File)) return setError("Escolha o comprovante ou use o botão Já paguei."); setLoading(true); setError(""); try { const body = new FormData(); body.set("receipt", receipt); const r = await apiFetch(`/api/orders/${code}/receipt`, { method: "POST", body }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.localStorage.removeItem(PENDING_ORDER_KEY); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao enviar comprovante."); } finally { setLoading(false); } }
+  async function declarePaid() { if (!window.confirm(`Confirmar que você já pagou R$ ${paymentTotal.toFixed(2).replace(".", ",")} via Pix para o pedido ${code}?`)) return; setLoading(true); setError(""); try { const r = await apiFetch(`/api/orders/${code}/declare-paid`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); window.localStorage.removeItem(PENDING_ORDER_KEY); window.location.href = `/pedido/${code}`; } catch (e) { setError(e instanceof Error ? e.message : "Falha ao confirmar pagamento."); } finally { setLoading(false); } }
+  const openCheckout = () => {
+    if (code && paymentTotalCents != null && step === "payment") { setOpen(true); return; }
+    setOpen(true); setStep("select");
+  };
+  return <><button className="ticket-action" onClick={openCheckout}>Comprar ingresso <span>↗</span></button>{open && <div className="checkout-backdrop" role="dialog" aria-modal="true"><div className="checkout-shell alchemy-checkout"><button className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button>
     {step === "select" && <form onSubmit={submitOrder}><p className="kicker">INGRESSOS · LUA CHEIA</p><h2>Garanta antes de virar o lote.</h2><p className="checkout-ticket">Toque em <strong>adicionar</strong> para montar sua lista. O Combo 5 sai por apenas R$ 16 por pessoa.</p>
       <div className="ticket-picker">{TICKET_KINDS.map((kind) => (
         <article className={`picker-card${kind === "combo5" ? " featured" : ""}${counts[kind] > 0 ? " active" : ""}${!canAdd(kind) && counts[kind] === 0 ? " sold-out" : ""}`} key={kind}>
@@ -109,6 +149,6 @@ export function Checkout({ djSlug, maxTickets, djName }: { djSlug?: string; maxT
         <p className="checkout-ticket">Total <strong>R$ {total.toFixed(2).replace(".", ",")}</strong></p>
         <button className="checkout-submit btn" disabled={loading}>{loading ? "Criando pedido…" : `Continuar · R$ ${total.toFixed(2).replace(".", ",")}`}</button></>}
       </form>}
-    {step === "payment" && <form onSubmit={submitReceipt}><p className="kicker">PEDIDO {code}</p><h2>Pague via Pix.</h2><p className="checkout-ticket">Total <strong>R$ {total.toFixed(2).replace(".", ",")}</strong> · o QR já vem com o valor exato.</p>{qr && <img className="pix-qr" src={qr} alt="QR Code Pix" />}<div className="pix-key"><code>{pixPayload || pixKey}</code><button className="btn btn-sm" type="button" onClick={() => navigator.clipboard.writeText(pixPayload || pixKey)}>Copiar Pix</button></div><span className="field-label">Print do pagamento</span><label className="receipt-drop" htmlFor="receipt-file"><span className="receipt-plus" aria-hidden="true">+</span><span className="receipt-text">{receiptName || "Tocar para anexar o print"}</span><span className="receipt-hint">JPG, PNG ou WEBP · até 5 MB</span></label><input id="receipt-file" className="receipt-input" name="receipt" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setReceiptName(e.target.files?.[0]?.name ?? "")} /><button className="checkout-submit btn" disabled={loading}>{loading ? "Enviando…" : "Enviar comprovante"}</button><button className="checkout-secondary" type="button" disabled={loading} onClick={declarePaid}>Já paguei <span>✓</span></button></form>}
+    {step === "payment" && <form onSubmit={submitReceipt}><p className="kicker">PEDIDO {code}</p><h2>Pague via Pix.</h2><p className="checkout-ticket">Total <strong>R$ {paymentTotal.toFixed(2).replace(".", ",")}</strong> · o QR já vem com o valor exato.</p>{qr && <img className="pix-qr" src={qr} alt="QR Code Pix" />}<div className="pix-key"><code>{pixPayload || pixKey}</code><button className="btn btn-sm" type="button" onClick={() => navigator.clipboard.writeText(pixPayload || pixKey)}>Copiar Pix</button></div><span className="field-label">Print do pagamento</span><label className="receipt-drop" htmlFor="receipt-file"><span className="receipt-plus" aria-hidden="true">+</span><span className="receipt-text">{receiptName || "Tocar para anexar o print"}</span><span className="receipt-hint">JPG, PNG ou WEBP · até 5 MB</span></label><input id="receipt-file" className="receipt-input" name="receipt" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setReceiptName(e.target.files?.[0]?.name ?? "")} /><button className="checkout-submit btn" disabled={loading}>{loading ? "Enviando…" : "Enviar comprovante"}</button><button className="checkout-secondary" type="button" disabled={loading} onClick={declarePaid}>Já paguei <span>✓</span></button></form>}
     {step === "sent" && <><p className="kicker">COMPROVANTE ENVIADO</p><h2>Agora é com a alquimia.</h2><p className="checkout-ticket">Seu pedido {code} aguarda aprovação. Após aprovado, os nomes entram na lista da portaria.</p></>}{error && <p className="error">{error}</p>}</div></div>}</>;
 }
