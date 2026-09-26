@@ -11,7 +11,7 @@ type Order = { code: string; buyerName: string; email: string; whatsapp: string;
 type Audit = { id: number; createdAt: string; action: string; orderCode: string | null; guestName: string | null; detail: string | null };
 type Receipt = { filename: string; contentType: string; dataBase64: string };
 type Complimentary = { id: number; name: string; listName: string; note: string | null; sellerId: number | null; sellerName: string | null; checkedInAt: string | null; removedAt: string | null; removedReason: string | null };
-type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; removedApproved: number; checkedIn: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
+type Stats = { byStatus: { status: string; orders: number; cents: number }[]; guests: { status: string; kind: string; count: number }[]; removed: number; removedApproved: number; checkedIn: number; checkedInPaid: number; checkedInComplimentary: number; bySeller: { seller: string; orders: number; cents: number; guests: number }[]; complimentary: { total: number; checkedIn: number } };
 type Seller = { id: number; name: string; slug: string | null; quota: number; active: boolean; sold: number; given: number; used: number; remaining: number };
 type Lista = { nome: string; dj: string | null; total: number; entrados: number; convidados: { nome: string; entrou: boolean }[]; token: string };
 type Target = { kind: "guest" | "complimentary" | "seller"; id: number; name: string };
@@ -193,7 +193,10 @@ Só confirme se você já conferiu o pagamento por fora.`
 
   const approvedByKind = (kind: string) => stats?.guests.find((g) => g.status === "approved" && g.kind === kind)?.count ?? 0;
   const byStatus = (status: string) => stats?.byStatus.find((s) => s.status === status);
-  const pending = byStatus("pending_approval")?.orders ?? 0;
+  const pendingApproval = byStatus("pending_approval")?.orders ?? 0;
+  const pendingReceipt = byStatus("awaiting_receipt")?.orders ?? 0;
+  const pending = pendingApproval + pendingReceipt;
+  const visibleOrders = orders.filter((o) => o.status !== "rejected");
 
   if (!token) {
     return <main className="admin-page">
@@ -221,7 +224,7 @@ Só confirme se você já conferiu o pagamento por fora.`
       <p className="kicker">PVT ALQUIMISTA · ADMIN</p>
       <h1>Painel da produção</h1>
       <p className="admin-hero-sub">
-        {plural(byStatus("approved")?.orders ?? 0, "aprovado", "aprovados")} · {plural(pending, "aguardando", "aguardando")} · {br(byStatus("approved")?.cents ?? 0)} confirmados
+        {plural(byStatus("approved")?.orders ?? 0, "aprovado", "aprovados")} · {plural(pending, "pendente", "pendentes")} · {br(byStatus("approved")?.cents ?? 0)} confirmados
         <button className="sair" type="button" onClick={sair}>Sair</button>
       </p>
       <nav className="admin-tabs" aria-label="Seções do painel">
@@ -238,11 +241,11 @@ Só confirme se você já conferiu o pagamento por fora.`
 
       {tab === "visao" && stats && <section className="stat-grid">
         <article className="card stat-card featured"><span>RECEITA APROVADA</span><b>{br(byStatus("approved")?.cents ?? 0)}</b><p>{plural(byStatus("approved")?.orders ?? 0, "pedido aprovado", "pedidos aprovados")}{stats.removedApproved > 0 ? ` · ${plural(stats.removedApproved, "convidado removido", "convidados removidos")} depois` : ""}</p></article>
-        <article className="card stat-card"><span>INGRESSOS APROVADOS</span><b>{TICKET_KINDS.reduce((s, k) => s + approvedByKind(k), 0)}</b><p>{TICKET_KINDS.map((k) => `${TICKET_LABEL[k]} ${approvedByKind(k)}`).join(" · ")}</p></article>
-        <article className="card stat-card"><span>CORTESIAS</span><b>{stats.complimentary.total}</b><p>{plural(stats.complimentary.checkedIn, "já entrou", "já entraram")}</p></article>
-        <article className="card stat-card"><span>CHECK-IN NA PORTARIA</span><b>{stats.checkedIn}</b><p>{plural(stats.checkedIn, "entrada confirmada", "entradas confirmadas")}</p></article>
-        <article className="card stat-card"><span>AGUARDANDO APROVAÇÃO</span><b>{pending}</b><p>{br(byStatus("pending_approval")?.cents ?? 0)} em análise</p></article>
-        <article className="card stat-card"><span>AGUARDANDO COMPROVANTE</span><b>{byStatus("awaiting_receipt")?.orders ?? 0}</b><p>{br(byStatus("awaiting_receipt")?.cents ?? 0)} sem envio</p></article>
+        <article className="card stat-card"><span>PESSOAS EM PEDIDOS APROVADOS</span><b>{TICKET_KINDS.reduce((s, k) => s + approvedByKind(k), 0)}</b><p>{TICKET_KINDS.map((k) => `${TICKET_LABEL[k]}: ${approvedByKind(k)} ${approvedByKind(k) === 1 ? "pessoa" : "pessoas"}`).join(" · ")}</p></article>
+        <article className="card stat-card"><span>CORTESIAS ATIVAS</span><b>{stats.complimentary.total}</b><p>{plural(stats.complimentary.checkedIn, "já entrou", "já entraram")}</p></article>
+        <article className="card stat-card"><span>ENTRADAS CONFIRMADAS</span><b>{stats.checkedIn}</b><p>{stats.checkedInPaid} pagantes · {stats.checkedInComplimentary} cortesias</p></article>
+        <article className="card stat-card"><span>AGUARDANDO APROVAÇÃO</span><b>{pendingApproval}</b><p>{br(byStatus("pending_approval")?.cents ?? 0)} em análise</p></article>
+        <article className="card stat-card"><span>AGUARDANDO COMPROVANTE</span><b>{pendingReceipt}</b><p>{br(byStatus("awaiting_receipt")?.cents ?? 0)} sem envio</p></article>
         <article className="card stat-card"><span>REMOVIDOS (PRESERVADOS)</span><b>{stats.removed}</b><p>fora da portaria, com log</p></article>
         {stats.bySeller.length > 0 && <article className="card stat-card wide"><span>POR VENDEDOR (APROVADOS)</span>{stats.bySeller.map((s) => <p key={s.seller}>{s.seller} · {plural(s.orders, "pedido", "pedidos")} · {plural(s.guests, "pessoa", "pessoas")} · {br(s.cents)}</p>)}</article>}
       </section>}
@@ -351,8 +354,8 @@ Só confirme se você já conferiu o pagamento por fora.`
       </>}
 
       {tab === "pedidos" && <>
-        {orders.length === 0 && <p className="fineprint">Nenhum pedido ainda.</p>}
-        {orders.map((o) => <article className="card" key={o.code}>
+        {visibleOrders.length === 0 && <p className="fineprint">Nenhum pedido ativo ainda.</p>}
+        {visibleOrders.map((o) => <article className="card" key={o.code}>
           <b>{o.code} · {br(o.totalCents)}</b>
           <p>{o.buyerName} · {o.whatsapp} · {o.email}</p>
           {o.sellerName && <p>Vendedor: {o.sellerName}</p>}
